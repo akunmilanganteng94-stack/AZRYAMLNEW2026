@@ -1,26 +1,16 @@
 {
   "users": {
-    "usr_mwac3sgsc77c": {
-      "uid": "usr_mwac3sgsc77c",
+    "usr_dGVzdHVzZXJAZXhhbXBsZS5j": {
+      "uid": "usr_dGVzdHVzZXJAZXhhbXBsZS5j",
+      "email": "testuser@example.com",
       "name": "Test User",
-      "email": "testuser@gmail.com",
       "photoURL": "",
       "balance": 0,
-      "role": "user",
-      "createdAt": "2026-11-10T06:53:58.876Z",
-      "status": "active",
-      "password": "password123"
-    },
-    "owner_mwac3x6g": {
-      "uid": "owner_mwac3x6g",
-      "name": "AZRYL (Admin Owner)",
-      "email": "apriliansyahazril10@gmail.com",
-      "photoURL": "",
-      "balance": 100000,
       "role": "admin",
-      "createdAt": "2026-11-10T06:54:04.984Z",
       "status": "active",
-      "password": "mypassword"
+      "createdAt": "2026-11-10T08:38:15.555Z",
+      "totalDeposits": 0,
+      "totalSpent": 0
     }
   },
   "products": [
@@ -29,16 +19,20 @@
       "name": "Bulk AM",
       "price": 200,
       "image": "https://cdn.corenexis.com/f/hUimw94N.webp",
-      "description": "Layanan inject akun Alight Motion Bulk cepat, stabil, dan otomatis (1 - 5 akun sekaligus).",
-      "active": true
+      "description": "Order akun Alight Motion Bulk instan otomatis. Minimal 1 akun, maksimal 5 akun per transaksi.",
+      "active": true,
+      "minQuantity": 1,
+      "maxQuantity": 5
     },
     {
       "id": "am-verif",
       "name": "AM Verif",
       "price": 300,
       "image": "https://cdn.corenexis.com/f/hUimw94N.webp",
-      "description": "Verifikasi resmi akun Alight Motion via link autentikasi langsung dengan proses terjamin.",
-      "active": true
+      "description": "Layanan verifikasi akun Alight Motion resmi melalui magic link. Proses terkonfirmasi dan aman.",
+      "active": true,
+      "minQuantity": 1,
+      "maxQuantity": 1
     }
   ],
   "deposits": [],
@@ -47,12 +41,23 @@
     "storeOpen": true,
     "depositOpen": true,
     "maintenanceMode": false,
-    "apiConfiguration": {
-      "bulkApiUrl": "https://am.dapjisync.my.id/api/send",
-      "bulkApiKey": "API_KEY_BULK",
-      "verifApiUrl": "https://am.dapjisync.my.id/api/verif",
-      "verifApiKey": "API_KEY_VERIF"
-    }
+    "bulkPrice": 200,
+    "verifPrice": 300,
+    "bulkEndpoint": "https://am.dapjisync.my.id/api/send",
+    "bulkApiKey": "API_KEY_BULK_DEFAULT",
+    "verifEndpoint": "https://am.dapjisync.my.id/api/verif",
+    "verifApiKey": "API_KEY_VERIF_DEFAULT",
+    "qrisImageUrl": "https://cdn.phototourl.com/member/2026-11-10-5a092aa1-5330-4068-a112-233f093bfe0b.png",
+    "merchantName": "Toko Kelontong Zril Store",
+    "minDeposit": 500
   },
-  "auditLogs": []
+  "auditLogs": [
+    {
+      "id": "AUD-1794299906043",
+      "timestamp": "2026-11-10T08:38:26.043Z",
+      "adminEmail": "stokakunrilzz1@gmail.com",
+      "action": "UPDATE_ROLE",
+      "details": "Ubah hak akses role pengguna testuser@example.com dari user menjadi admin"
+    }
+  ]
 }
