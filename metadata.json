@@ -1,0 +1,6 @@
+{
+  "name": "AM PREMIUM | AZRYL",
+  "description": "Website e-commerce digital premium pembelian layanan AM (Bulk AM & AM Verif) powered by AZRYL dengan sistem deposit QRIS dan saldo aman.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

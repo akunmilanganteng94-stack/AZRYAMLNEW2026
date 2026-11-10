@@ -1,0 +1,58 @@
+{
+  "users": {
+    "usr_mwac3sgsc77c": {
+      "uid": "usr_mwac3sgsc77c",
+      "name": "Test User",
+      "email": "testuser@gmail.com",
+      "photoURL": "",
+      "balance": 0,
+      "role": "user",
+      "createdAt": "2026-11-10T06:53:58.876Z",
+      "status": "active",
+      "password": "password123"
+    },
+    "owner_mwac3x6g": {
+      "uid": "owner_mwac3x6g",
+      "name": "AZRYL (Admin Owner)",
+      "email": "apriliansyahazril10@gmail.com",
+      "photoURL": "",
+      "balance": 100000,
+      "role": "admin",
+      "createdAt": "2026-11-10T06:54:04.984Z",
+      "status": "active",
+      "password": "mypassword"
+    }
+  },
+  "products": [
+    {
+      "id": "bulk-am",
+      "name": "Bulk AM",
+      "price": 200,
+      "image": "https://cdn.corenexis.com/f/hUimw94N.webp",
+      "description": "Layanan inject akun Alight Motion Bulk cepat, stabil, dan otomatis (1 - 5 akun sekaligus).",
+      "active": true
+    },
+    {
+      "id": "am-verif",
+      "name": "AM Verif",
+      "price": 300,
+      "image": "https://cdn.corenexis.com/f/hUimw94N.webp",
+      "description": "Verifikasi resmi akun Alight Motion via link autentikasi langsung dengan proses terjamin.",
+      "active": true
+    }
+  ],
+  "deposits": [],
+  "orders": [],
+  "settings": {
+    "storeOpen": true,
+    "depositOpen": true,
+    "maintenanceMode": false,
+    "apiConfiguration": {
+      "bulkApiUrl": "https://am.dapjisync.my.id/api/send",
+      "bulkApiKey": "API_KEY_BULK",
+      "verifApiUrl": "https://am.dapjisync.my.id/api/verif",
+      "verifApiKey": "API_KEY_VERIF"
+    }
+  },
+  "auditLogs": []
+}
