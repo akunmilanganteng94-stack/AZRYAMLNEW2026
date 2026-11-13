@@ -12,7 +12,9 @@ import {
   Edit3, 
   Check, 
   Copy,
-  ExternalLink
+  ExternalLink,
+  Lock,
+  Send
 } from 'lucide-react';
 
 interface AccountViewProps {
@@ -21,12 +23,18 @@ interface AccountViewProps {
 }
 
 export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveTab }) => {
-  const { userProfile, logout, refreshUserProfile } = useAuth();
+  const { userProfile, currentUser, logout, refreshUserProfile, resetPassword, changePassword } = useAuth();
   const { showToast } = useToast();
 
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(userProfile?.name || '');
   const [saving, setSaving] = useState(false);
+  const [sendingResetLink, setSendingResetLink] = useState(false);
+  const [resetLinkSent, setResetLinkSent] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   if (!userProfile) {
     return (
@@ -85,6 +93,52 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
   const formattedDate = userProfile.createdAt 
     ? new Date(userProfile.createdAt).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })
     : 'Hari ini';
+
+  const hasPasswordProvider = Boolean(
+    currentUser?.providerData?.some((p) => p.providerId === 'password')
+  );
+
+  const handleSendResetLink = async () => {
+    setSendingResetLink(true);
+    try {
+      await resetPassword(userProfile.email);
+      setResetLinkSent(true);
+      showToast(`Link reset sandi resmi dari Firebase telah dikirim ke ${userProfile.email}. Cek Inbox / Spam Gmail Anda!`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Gagal mengirim link reset sandi Firebase.', 'error');
+    } finally {
+      setSendingResetLink(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPassword) {
+      showToast('Masukkan kata sandi lama Anda.', 'error');
+      return;
+    }
+    if (newPassword.length < 6) {
+      showToast('Kata sandi baru minimal 6 karakter.', 'error');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      showToast('Konfirmasi kata sandi baru tidak cocok.', 'error');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      await changePassword(currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      showToast('Kata sandi akun Firebase Anda berhasil diubah!', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Gagal mengubah kata sandi.', 'error');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-24 md:pb-8">
@@ -251,19 +305,98 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
         <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
           <button
             onClick={() => setActiveTab('deposit')}
-            className="py-2.5 px-4 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-cyan-300 font-semibold text-xs transition-all"
+            className="py-2.5 px-4 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-cyan-300 font-semibold text-xs transition-all cursor-pointer"
           >
             Deposit Saldo (QRIS)
           </button>
 
           <button
             onClick={() => logout()}
-            className="py-2.5 px-4 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 font-semibold text-xs flex items-center gap-1.5 transition-all"
+            className="py-2.5 px-4 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Keluar Akun</span>
           </button>
         </div>
+      </div>
+
+      {/* Keamanan & Reset Kata Sandi Firebase */}
+      <div className="bg-[#080d1e] border border-blue-500/15 rounded-3xl p-6 shadow-xl space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div>
+            <h2 className="text-sm font-bold font-display text-white">Keamanan & Kata Sandi (Firebase)</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Kirim tautan reset sandi resmi dari Firebase ke Gmail atau ubah sandi langsung.
+            </p>
+          </div>
+          <Lock className="w-4 h-4 text-cyan-400 shrink-0" />
+        </div>
+
+        {/* Send Firebase Reset Link */}
+        <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <span className="text-xs font-semibold text-white block">Reset Sandi via Email Firebase</span>
+            <span className="text-[11px] text-slate-400 block">
+              Kirim tautan ubah sandi ke <span className="font-mono text-cyan-300">{userProfile.email}</span>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSendResetLink}
+            disabled={sendingResetLink}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 shrink-0 cursor-pointer"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>{sendingResetLink ? 'Mengirim...' : 'Kirim Link Reset Firebase'}</span>
+          </button>
+        </div>
+
+        {resetLinkSent && (
+          <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-200">
+            Link reset resmi Firebase sudah dikirim ke <strong>{userProfile.email}</strong>. Silakan cek kotak masuk atau folder Spam Gmail Anda.
+          </div>
+        )}
+
+        {/* Direct Password Change Form (for email/password accounts) */}
+        {hasPasswordProvider && (
+          <form onSubmit={handleChangePassword} className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+            <div className="text-xs font-semibold text-white">Ubah Kata Sandi Langsung</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Sandi lama"
+                className="px-3 py-2 bg-slate-900 border border-slate-800 focus:border-cyan-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none"
+                required
+              />
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Sandi baru (min 6)"
+                className="px-3 py-2 bg-slate-900 border border-slate-800 focus:border-cyan-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none"
+                required
+              />
+              <input
+                type="password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                placeholder="Ulangi sandi baru"
+                className="px-3 py-2 bg-slate-900 border border-slate-800 focus:border-cyan-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={changingPassword}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold text-xs transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {changingPassword ? 'Menyimpan...' : 'Ubah Kata Sandi'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

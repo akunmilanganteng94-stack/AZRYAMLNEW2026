@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.tsx';
 import { ToastProvider } from './components/Toast.tsx';
 import { Navbar } from './components/Navbar.tsx';
@@ -22,7 +22,25 @@ function MainApp() {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [selectedProductId, setSelectedProductId] = useState<string>('bulk-am');
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [resetOobCode, setResetOobCode] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode');
+    const oobCode = params.get('oobCode');
+    if (mode === 'resetPassword' && oobCode) {
+      setResetOobCode(oobCode);
+      setIsAuthOpen(true);
+    }
+  }, []);
+
+  const handleClearResetCode = () => {
+    setResetOobCode(null);
+    if (window.location.search.includes('oobCode')) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  };
 
   // If user tries to access admin tab without permissions, fallback to home
   const renderContent = () => {
@@ -118,6 +136,8 @@ function MainApp() {
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
+        resetOobCode={resetOobCode}
+        onClearResetCode={handleClearResetCode}
       />
     </div>
   );

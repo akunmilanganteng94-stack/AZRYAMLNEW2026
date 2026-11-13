@@ -5,7 +5,12 @@ import {
   signInWithPopup, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
-  sendPasswordResetEmail, 
+  sendPasswordResetEmail,
+  confirmPasswordReset,
+  verifyPasswordResetCode,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
   signOut,
   updateProfile,
   onAuthStateChanged,
@@ -38,6 +43,7 @@ export const firebaseConfig = {
 // Initialize Firebase safely
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+auth.languageCode = 'id';
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -46,6 +52,11 @@ export {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
+  confirmPasswordReset,
+  verifyPasswordResetCode,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
   signOut,
   updateProfile,
   onAuthStateChanged,

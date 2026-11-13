@@ -5,7 +5,12 @@ import {
   signInWithPopup, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
-  sendPasswordResetEmail, 
+  sendPasswordResetEmail,
+  confirmPasswordReset,
+  verifyPasswordResetCode,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   updateProfile,
@@ -28,6 +33,9 @@ interface AuthContextType {
   loginWithEmail: (e: string, p: string) => Promise<void>;
   registerWithEmail: (e: string, p: string, name: string) => Promise<void>;
   resetPassword: (e: string) => Promise<void>;
+  verifyResetCode: (oobCode: string) => Promise<string>;
+  confirmResetPassword: (oobCode: string, newPass: string) => Promise<void>;
+  changePassword: (currentPass: string, newPass: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUserProfile: () => Promise<void>;
   refreshSettings: () => Promise<void>;
@@ -300,18 +308,92 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetPassword = async (email: string) => {
+    const targetEmail = email.trim();
+    if (!targetEmail) {
+      throw new Error('Masukkan alamat email terlebih dahulu.');
+    }
+
     try {
-      await sendPasswordResetEmail(auth, email.trim());
-    } catch (err) {
-      // If Firebase fails, notify server
-      const res = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() })
-      });
-      if (!res.ok) {
-        throw new Error('Email tidak ditemukan di sistem.');
+      try {
+        await sendPasswordResetEmail(auth, targetEmail, {
+          url: window.location.origin,
+          handleCodeInApp: false
+        });
+      } catch (continueErr: any) {
+        if (
+          continueErr?.code === 'auth/unauthorized-continue-uri' ||
+          continueErr?.code === 'auth/invalid-continue-uri'
+        ) {
+          await sendPasswordResetEmail(auth, targetEmail);
+        } else {
+          throw continueErr;
+        }
       }
+    } catch (err: any) {
+      console.warn('Firebase reset password error:', err);
+      if (err?.code === 'auth/user-not-found') {
+        throw new Error('Email tidak terdaftar di Firebase Authentication.');
+      } else if (err?.code === 'auth/invalid-email') {
+        throw new Error('Format alamat email tidak valid.');
+      } else if (err?.code === 'auth/too-many-requests') {
+        throw new Error('Terlalu banyak permintaan reset sandi. Tunggu beberapa saat lalu coba lagi.');
+      } else if (err?.code === 'auth/missing-email') {
+        throw new Error('Alamat email wajib diisi.');
+      }
+      throw new Error(err?.message || 'Gagal mengirim link reset sandi via Firebase.');
+    }
+  };
+
+  const verifyResetCode = async (oobCode: string) => {
+    try {
+      return await verifyPasswordResetCode(auth, oobCode);
+    } catch (err: any) {
+      if (err?.code === 'auth/expired-action-code') {
+        throw new Error('Link reset sandi sudah kedaluwarsa. Silakan kirim ulang link reset.');
+      } else if (err?.code === 'auth/invalid-action-code') {
+        throw new Error('Link reset sandi tidak valid atau sudah pernah digunakan.');
+      }
+      throw new Error(err?.message || 'Kode reset sandi tidak valid.');
+    }
+  };
+
+  const confirmResetPassword = async (oobCode: string, newPass: string) => {
+    try {
+      await confirmPasswordReset(auth, oobCode, newPass);
+    } catch (err: any) {
+      if (err?.code === 'auth/weak-password') {
+        throw new Error('Kata sandi baru terlalu lemah (minimal 6 karakter).');
+      } else if (err?.code === 'auth/expired-action-code') {
+        throw new Error('Link reset sandi sudah kedaluwarsa. Silakan kirim ulang.');
+      } else if (err?.code === 'auth/invalid-action-code') {
+        throw new Error('Link reset sandi tidak valid atau sudah digunakan.');
+      }
+      throw new Error(err?.message || 'Gagal mengubah kata sandi di Firebase.');
+    }
+  };
+
+  const changePassword = async (currentPass: string, newPass: string) => {
+    const fbUser = auth.currentUser;
+    if (!fbUser || !fbUser.email) {
+      throw new Error('Sesi Firebase tidak ditemukan. Silakan login ulang terlebih dahulu.');
+    }
+
+    try {
+      const credential = EmailAuthProvider.credential(fbUser.email, currentPass);
+      await reauthenticateWithCredential(fbUser, credential);
+      await updatePassword(fbUser, newPass);
+    } catch (err: any) {
+      console.warn('Firebase updatePassword error:', err);
+      if (err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential') {
+        throw new Error('Kata sandi lama yang Anda masukkan salah.');
+      } else if (err?.code === 'auth/weak-password') {
+        throw new Error('Kata sandi baru terlalu lemah (minimal 6 karakter).');
+      } else if (err?.code === 'auth/requires-recent-login') {
+        throw new Error('Demi keamanan, silakan keluar lalu login kembali sebelum mengubah sandi.');
+      } else if (err?.code === 'auth/too-many-requests') {
+        throw new Error('Terlalu banyak percobaan. Silakan coba lagi nanti.');
+      }
+      throw new Error(err?.message || 'Gagal mengubah kata sandi.');
     }
   };
 
@@ -403,6 +485,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loginWithEmail,
       registerWithEmail,
       resetPassword,
+      verifyResetCode,
+      confirmResetPassword,
+      changePassword,
       logout,
       refreshUserProfile,
       refreshSettings,
