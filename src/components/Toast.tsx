@@ -36,7 +36,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <ToastContext.Provider value={{ showToast }}>
       {children}
       {/* Toast container */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0">
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none px-4 sm:px-0">
         {toasts.map(toast => {
           const isSuccess = toast.type === 'success';
           const isError = toast.type === 'error';
@@ -44,27 +44,31 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return (
             <div
               key={toast.id}
-              className={`pointer-events-auto flex items-start gap-3 p-3.5 rounded-xl backdrop-blur-xl shadow-xl transition-all duration-200 border ${
+              className={`pointer-events-auto flex items-start gap-3 p-3.5 rounded-xl border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] transition-all duration-200 ${
                 isSuccess
-                  ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-200'
+                  ? 'bg-[#DCFCE7] text-slate-950'
                   : isError
-                  ? 'bg-rose-950/80 border-rose-500/30 text-rose-200'
-                  : 'bg-slate-900/90 border-blue-500/30 text-blue-100'
+                  ? 'bg-[#FFE4E6] text-slate-950'
+                  : 'bg-[#FEF9C3] text-slate-950'
               }`}
             >
-              {isSuccess && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />}
-              {isError && <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />}
-              {!isSuccess && !isError && <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />}
+              <div className={`w-7 h-7 rounded-lg border-2 border-slate-950 flex items-center justify-center shrink-0 ${
+                isSuccess ? 'bg-[#4ADE80]' : isError ? 'bg-[#FB7185]' : 'bg-[#38BDF8]'
+              }`}>
+                {isSuccess && <CheckCircle2 className="w-4 h-4 text-slate-950" />}
+                {isError && <AlertCircle className="w-4 h-4 text-slate-950" />}
+                {!isSuccess && !isError && <Info className="w-4 h-4 text-slate-950" />}
+              </div>
 
-              <div className="flex-1 text-xs font-medium leading-relaxed">
+              <div className="flex-1 text-xs font-bold leading-relaxed text-slate-950">
                 {toast.message}
               </div>
 
               <button
                 onClick={() => removeToast(toast.id)}
-                className="text-slate-400 hover:text-white p-0.5 rounded transition-colors"
+                className="p-1 rounded-lg border-2 border-transparent hover:border-slate-950 hover:bg-white text-slate-950 transition-colors cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           );

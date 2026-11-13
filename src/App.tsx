@@ -97,10 +97,7 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen bg-[#050814] text-slate-100 flex relative selection:bg-blue-600 selection:text-white">
-      {/* Background ambient lighting */}
-      <div className="fixed top-0 left-1/4 w-[600px] h-[400px] bg-blue-600/10 rounded-full blur-[140px] pointer-events-none" />
-      <div className="fixed bottom-0 right-1/4 w-[500px] h-[400px] bg-cyan-600/10 rounded-full blur-[140px] pointer-events-none" />
+    <div className="min-h-screen text-slate-950 flex relative selection:bg-[#FFE600] selection:text-slate-950">
 
       {/* Desktop Collapsible Sidebar */}
       <Sidebar

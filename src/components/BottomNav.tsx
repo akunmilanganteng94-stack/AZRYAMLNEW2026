@@ -10,14 +10,16 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
   const { userProfile } = useAuth();
 
-  const isAdmin = userProfile?.role === 'admin' || userProfile?.email?.toLowerCase().trim() === 'apriliansyahazril10@gmail.com';
+  const isAdmin =
+    userProfile?.role === 'admin' ||
+    userProfile?.email?.toLowerCase().trim() === 'apriliansyahazril10@gmail.com';
 
   const tabs = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'menu', label: 'Menu', icon: ShoppingBag },
     { id: 'history', label: 'Riwayat', icon: Clock },
     { id: 'deposit', label: 'Deposit', icon: Wallet },
-    { id: 'account', label: 'Akun', icon: User },
+    { id: 'account', label: 'Akun', icon: User }
   ];
 
   if (isAdmin) {
@@ -25,8 +27,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
   }
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#070b18]/95 backdrop-blur-2xl border-t border-blue-500/15 shadow-2xl shadow-black">
-      <div className={`grid ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} items-center h-16 max-w-md mx-auto px-2`}>
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-slate-950">
+      <div className={`grid ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} items-center h-16 max-w-md mx-auto px-1.5 gap-1`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -35,24 +37,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className="flex flex-col items-center justify-center h-full min-h-[44px] min-w-[44px] relative py-1 focus:outline-none transition-all active:scale-90"
+              className={`flex flex-col items-center justify-center h-12 rounded-xl transition-all cursor-pointer ${
+                isActive
+                  ? 'bg-[#FFE600] border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] text-slate-950'
+                  : 'text-slate-600 hover:text-slate-950 border-2 border-transparent'
+              }`}
             >
-              {/* Active glow dot */}
-              {isActive && (
-                <span className="absolute top-1.5 w-1 h-1 rounded-full bg-cyan-400 shadow-[0_0_8px_#38bdf8]" />
-              )}
-
-              <Icon
-                className={`w-5 h-5 transition-colors ${
-                  isActive ? 'text-cyan-400 scale-105' : 'text-slate-400'
-                }`}
-              />
-
-              <span
-                className={`text-[10px] font-medium tracking-tight mt-1 transition-colors ${
-                  isActive ? 'text-cyan-300 font-semibold' : 'text-slate-400'
-                }`}
-              >
+              <Icon className="w-4 h-4" />
+              <span className={`text-[10px] tracking-tight mt-0.5 ${isActive ? 'font-black' : 'font-bold'}`}>
                 {tab.label}
               </span>
             </button>

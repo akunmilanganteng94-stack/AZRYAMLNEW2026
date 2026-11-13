@@ -45,11 +45,46 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+const CACHE_PROFILE_KEY = 'am_user_profile_cache';
+const CACHE_SESSION_KEY = 'am_active_session';
+const MANUAL_LOGOUT_KEY = 'am_manual_logout';
+
+function loadInitialCachedProfile(): UserProfile | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    if (localStorage.getItem(MANUAL_LOGOUT_KEY) === 'true') return null;
+    const raw = localStorage.getItem(CACHE_PROFILE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as UserProfile;
+    if (parsed && parsed.uid && parsed.email) {
+      return parsed;
+    }
+  } catch {
+    // ignore corrupt cache
+  }
+  return null;
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(loadInitialCachedProfile);
   const [loading, setLoading] = useState<boolean>(true);
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
+
+  const saveProfileCache = (profile: UserProfile) => {
+    try {
+      localStorage.removeItem(MANUAL_LOGOUT_KEY);
+      localStorage.setItem(CACHE_PROFILE_KEY, JSON.stringify(profile));
+      localStorage.setItem(CACHE_SESSION_KEY, JSON.stringify({
+        uid: profile.uid,
+        email: profile.email,
+        displayName: profile.name,
+        photoURL: profile.photoURL || ''
+      }));
+    } catch {
+      // ignore storage quota errors
+    }
+  };
 
   // Sync user profile with Firestore (source of truth) and backend server
   const syncUserWithServer = async (user: { uid: string; email: string | null; displayName: string | null; photoURL: string | null }) => {
@@ -106,12 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           data.role = 'admin';
         }
         setUserProfile(data);
-        localStorage.setItem('am_active_session', JSON.stringify({
-          uid: data.uid,
-          email: data.email,
-          displayName: data.name,
-          photoURL: data.photoURL || ''
-        }));
+        saveProfileCache(data);
 
         // 3. Ensure Firestore document exists and stays synced without clobbering balance
         try {
@@ -140,6 +170,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {
           // ignore offline firestore write
         }
+      } else {
+        // Fallback to Firestore/cached profile if server sync temporarily fails
+        const fallbackProfile: UserProfile = {
+          uid: user.uid,
+          email: normalizedEmail,
+          name: fsName || user.displayName || normalizedEmail.split('@')[0] || 'Member AM',
+          photoURL: user.photoURL || '',
+          balance: typeof fsBalance === 'number' ? fsBalance : 0,
+          role: fsRole || (isOwner ? 'admin' : 'user'),
+          status: fsStatus || 'active',
+          createdAt: new Date().toISOString()
+        };
+        setUserProfile(prev => {
+          const merged = prev?.uid === user.uid
+            ? {
+                ...prev,
+                balance: typeof fsBalance === 'number' ? fsBalance : prev.balance,
+                role: fsRole || prev.role,
+                status: fsStatus || prev.status,
+                name: fsName || prev.name
+              }
+            : fallbackProfile;
+          saveProfileCache(merged);
+          return merged;
+        });
       }
     } catch (err) {
       console.error('Failed to sync user with server:', err);
@@ -167,13 +222,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (fsData.status === 'active' || fsData.status === 'banned') data.status = fsData.status;
         }
         setUserProfile(data);
+        saveProfileCache(data);
       } else if (fsData) {
-        setUserProfile(prev => prev ? {
-          ...prev,
-          balance: typeof fsData.balance === 'number' ? fsData.balance : prev.balance,
-          role: fsData.role || prev.role,
-          status: fsData.status || prev.status
-        } : null);
+        setUserProfile(prev => {
+          if (!prev) return null;
+          const updated: UserProfile = {
+            ...prev,
+            balance: typeof fsData.balance === 'number' ? fsData.balance : prev.balance,
+            role: fsData.role || prev.role,
+            status: fsData.status || prev.status
+          };
+          saveProfileCache(updated);
+          return updated;
+        });
       }
     } catch (err) {
       console.error('Failed to refresh user profile:', err);
@@ -208,8 +269,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     refreshSettings();
 
-    // Check active local session first for instant resume
-    const savedSession = localStorage.getItem('am_active_session');
+    // Check active local session first for instant resume (unless manually logged out)
+    const isManualLogout = localStorage.getItem(MANUAL_LOGOUT_KEY) === 'true';
+    const savedSession = !isManualLogout ? localStorage.getItem(CACHE_SESSION_KEY) : null;
     if (savedSession) {
       try {
         const parsed = JSON.parse(savedSession);
@@ -223,6 +285,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setCurrentUser(firebaseUser);
       if (firebaseUser) {
+        localStorage.removeItem(MANUAL_LOGOUT_KEY);
         await syncUserWithServer({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
@@ -398,14 +461,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    localStorage.removeItem('am_active_session');
+    localStorage.setItem(MANUAL_LOGOUT_KEY, 'true');
+    localStorage.removeItem(CACHE_SESSION_KEY);
+    localStorage.removeItem(CACHE_PROFILE_KEY);
     await firebaseSignOut(auth).catch(() => {});
     setCurrentUser(null);
     setUserProfile(null);
   };
 
   const updateBalanceLocally = (newBalance: number) => {
-    setUserProfile(prev => prev ? { ...prev, balance: newBalance } : null);
+    setUserProfile(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, balance: newBalance };
+      saveProfileCache(updated);
+      return updated;
+    });
   };
 
   // Real-time Firestore document listener to detect role, balance, or status updates directly
@@ -422,12 +492,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const hasStatusChange = data.status && data.status !== userProfile.status;
 
           if (hasRoleChange || hasBalanceChange || hasStatusChange) {
-            setUserProfile(prev => prev ? {
-              ...prev,
-              role: data.role || prev.role,
-              balance: typeof data.balance === 'number' ? data.balance : prev.balance,
-              status: data.status || prev.status
-            } : null);
+            setUserProfile(prev => {
+              if (!prev) return null;
+              const updated: UserProfile = {
+                ...prev,
+                role: data.role || prev.role,
+                balance: typeof data.balance === 'number' ? data.balance : prev.balance,
+                status: data.status || prev.status
+              };
+              saveProfileCache(updated);
+              return updated;
+            });
 
             // Sync updated balance/role/status back to backend server so API orders stay accurate
             await fetch('/api/user/sync', {

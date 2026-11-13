@@ -144,15 +144,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div 
-        className="w-full max-w-md bg-[#090e21] border border-blue-500/20 rounded-3xl p-6 shadow-2xl relative overflow-hidden"
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+      <div
+        className="w-full max-w-md bg-white border-2 border-slate-950 rounded-2xl p-6 shadow-[8px_8px_0px_0px_#020617] relative overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Glow backdrop */}
-        <div className="absolute -top-20 -right-20 w-44 h-44 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-20 -left-20 w-44 h-44 bg-cyan-600/15 rounded-full blur-3xl pointer-events-none" />
-
         {/* Close Button */}
         <button
           onClick={() => {
@@ -160,49 +156,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClearResetCode?.();
             onClose();
           }}
-          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-full bg-slate-900/60 border border-slate-800 transition-colors cursor-pointer"
+          className="absolute top-4 right-4 p-2 text-slate-950 rounded-xl bg-[#F4F3EE] hover:bg-[#FFE600] border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
 
         {/* Modal Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-slate-950 border border-blue-500/30 p-2 shadow-lg shadow-blue-600/20 mb-3">
-            <img 
-              src={AM_LOGO_URL} 
-              alt="AM PREMIUM Logo" 
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#FFE600] border-2 border-slate-950 p-2 shadow-[3px_3px_0px_0px_#020617] mb-3">
+            <img
+              src={AM_LOGO_URL}
+              alt="AM PREMIUM Logo"
               className="w-full h-full object-contain"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = '/images/am-logo.png';
               }}
             />
           </div>
-          <h2 className="text-xl font-bold font-display text-white">
+          <h2 className="text-xl font-black font-display text-slate-950">
             {mode === 'login' && 'Masuk ke AM PREMIUM'}
             {mode === 'register' && 'Buat Akun Baru'}
             {mode === 'forgot' && 'Reset Kata Sandi'}
             {mode === 'confirmReset' && 'Buat Kata Sandi Baru'}
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs font-medium text-slate-600 mt-1">
             {mode === 'login' && 'Akses saldo dan transaksi layanan Alight Motion'}
             {mode === 'register' && 'Daftar sekarang untuk mulai berbelanja'}
             {mode === 'forgot' && 'Link reset sandi resmi akan dikirim oleh Firebase Auth ke Gmail Anda'}
-            {mode === 'confirmReset' && (
-              resetTargetEmail
+            {mode === 'confirmReset' &&
+              (resetTargetEmail
                 ? `Atur ulang kata sandi untuk akun ${resetTargetEmail}`
-                : 'Memverifikasi kode reset sandi Firebase...'
-            )}
+                : 'Memverifikasi kode reset sandi Firebase...')}
           </p>
         </div>
 
         {/* Success banner when Firebase reset link sent */}
         {mode === 'forgot' && resetSentEmail && (
-          <div className="mb-4 p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-xs text-emerald-200 flex items-start gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="mb-4 p-3.5 rounded-xl bg-[#DCFCE7] border-2 border-slate-950 text-xs text-slate-950 flex items-start gap-2.5 shadow-[3px_3px_0px_0px_#020617]">
+            <CheckCircle2 className="w-4 h-4 text-[#16A34A] shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <div className="font-bold text-white">Link Reset Terkirim dari Firebase!</div>
-              <p className="text-[11px] leading-relaxed text-emerald-200/90">
-                Email berisi link ubah sandi telah dikirim ke <span className="font-mono text-cyan-300">{resetSentEmail}</span>. Cek kotak masuk atau folder Spam, klik linknya, lalu masukkan kata sandi baru Anda.
+              <div className="font-extrabold text-slate-950">Link Reset Terkirim dari Firebase!</div>
+              <p className="text-[11px] leading-relaxed text-slate-800">
+                Email berisi link ubah sandi telah dikirim ke{' '}
+                <span className="font-mono font-bold text-slate-950 underline">{resetSentEmail}</span>. Cek kotak masuk atau folder Spam, klik linknya, lalu masukkan kata sandi baru Anda.
               </p>
             </div>
           </div>
@@ -211,22 +207,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Form */}
         {mode === 'confirmReset' && verifyingCode ? (
           <div className="py-8 text-center space-y-2">
-            <span className="inline-block w-6 h-6 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
-            <p className="text-xs text-slate-400">Memvalidasi tautan reset dari Firebase...</p>
+            <span className="inline-block w-6 h-6 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
+            <p className="text-xs font-bold text-slate-700">Memvalidasi tautan reset dari Firebase...</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-3.5">
             {mode === 'register' && (
               <div>
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">Nama Lengkap</label>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-950 mb-1">
+                  Nama Lengkap
+                </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <User className="w-4 h-4 text-slate-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Contoh: Azryl"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950/70 border border-slate-800 focus:border-blue-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+                    className="w-full pl-10 pr-4 py-2.5 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
                     required
                   />
                 </div>
@@ -235,15 +233,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             {mode !== 'confirmReset' && (
               <div>
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">Email</label>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-950 mb-1">
+                  Email
+                </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Mail className="w-4 h-4 text-slate-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="nama@gmail.com"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950/70 border border-slate-800 focus:border-blue-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+                    className="w-full pl-10 pr-4 py-2.5 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
                     required
                   />
                 </div>
@@ -253,7 +253,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode !== 'forgot' && (
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-medium text-slate-300">
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-950">
                     {mode === 'confirmReset' ? 'Kata Sandi Baru' : 'Password'}
                   </label>
                   {mode === 'login' && (
@@ -263,20 +263,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         setResetSentEmail(null);
                         setMode('forgot');
                       }}
-                      className="text-[10px] text-cyan-400 hover:underline cursor-pointer"
+                      className="text-[11px] font-bold text-[#2563EB] hover:underline cursor-pointer"
                     >
                       Lupa password?
                     </button>
                   )}
                 </div>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-slate-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Minimal 6 karakter"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950/70 border border-slate-800 focus:border-blue-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+                    className="w-full pl-10 pr-4 py-2.5 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
                     required
                   />
                 </div>
@@ -285,15 +285,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             {mode === 'confirmReset' && (
               <div>
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">Konfirmasi Kata Sandi Baru</label>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-950 mb-1">
+                  Konfirmasi Kata Sandi Baru
+                </label>
                 <div className="relative">
-                  <KeyRound className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <KeyRound className="w-4 h-4 text-slate-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Ulangi kata sandi baru"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950/70 border border-slate-800 focus:border-blue-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+                    className="w-full pl-10 pr-4 py-2.5 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
                     required
                   />
                 </div>
@@ -303,7 +305,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-semibold text-xs shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50 active:scale-[0.98] cursor-pointer"
+              className="w-full py-2.5 px-4 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
             >
               {loading ? (
                 <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -326,16 +328,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <>
             {/* Divider */}
             <div className="flex items-center gap-3 my-4">
-              <div className="flex-1 h-px bg-slate-800" />
-              <span className="text-[10px] text-slate-500 font-medium">atau masuk dengan</span>
-              <div className="flex-1 h-px bg-slate-800" />
+              <div className="flex-1 h-0.5 bg-slate-950/20" />
+              <span className="text-[10px] text-slate-600 font-extrabold uppercase tracking-wider">
+                atau masuk dengan
+              </span>
+              <div className="flex-1 h-0.5 bg-slate-950/20" />
             </div>
 
             {/* Google OAuth button */}
             <button
               onClick={handleGoogleLogin}
               disabled={loading}
-              className="w-full py-2 px-4 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-slate-700/80 text-white text-xs font-medium flex items-center justify-center gap-2.5 transition-all cursor-pointer"
+              className="w-full py-2.5 px-4 rounded-xl bg-[#FFFDF7] hover:bg-[#FFE600] text-slate-950 text-xs font-extrabold nb-btn flex items-center justify-center gap-2.5 cursor-pointer"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24">
                 <path
@@ -361,14 +365,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {/* Bottom Switcher */}
-        <div className="mt-5 text-center text-xs text-slate-400">
+        <div className="mt-5 text-center text-xs font-medium text-slate-700">
           {mode === 'login' ? (
             <p>
               Belum punya akun?{' '}
               <button
                 type="button"
                 onClick={() => setMode('register')}
-                className="text-cyan-400 font-semibold hover:underline cursor-pointer"
+                className="text-[#2563EB] font-extrabold hover:underline cursor-pointer"
               >
                 Daftar sekarang
               </button>
@@ -383,7 +387,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   onClearResetCode?.();
                   setMode('login');
                 }}
-                className="text-cyan-400 font-semibold hover:underline cursor-pointer"
+                className="text-[#2563EB] font-extrabold hover:underline cursor-pointer"
               >
                 Kembali ke login
               </button>

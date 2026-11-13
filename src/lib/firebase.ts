@@ -1,6 +1,9 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getAuth, 
+  setPersistence,
+  browserLocalPersistence,
+  indexedDBLocalPersistence,
   GoogleAuthProvider, 
   signInWithPopup, 
   signInWithEmailAndPassword, 
@@ -44,6 +47,9 @@ export const firebaseConfig = {
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 auth.languageCode = 'id';
+setPersistence(auth, indexedDBLocalPersistence)
+  .catch(() => setPersistence(auth, browserLocalPersistence))
+  .catch(() => {});
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
 
