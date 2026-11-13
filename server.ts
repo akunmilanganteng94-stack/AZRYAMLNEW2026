@@ -239,11 +239,24 @@ app.post('/api/user/sync', (req, res) => {
   let user = db.users[uid];
   if (!user) {
     // Check if user previously existed under same email
-    const existingUid = Object.keys(db.users).find(k => db.users[k].email.toLowerCase() === normalizedEmail);
+    const existingUid = Object.keys(db.users).find(k => db.users[k].email.toLowerCase().trim() === normalizedEmail);
     if (existingUid) {
       user = db.users[existingUid];
       delete db.users[existingUid];
       user.uid = uid;
+      // Preserve ownership of existing orders and deposits for this user
+      db.orders.forEach(o => {
+        if (o.uid === existingUid || o.userEmail?.toLowerCase().trim() === normalizedEmail) {
+          o.uid = uid;
+          o.userEmail = normalizedEmail;
+        }
+      });
+      db.deposits.forEach(d => {
+        if (d.uid === existingUid || d.userEmail?.toLowerCase().trim() === normalizedEmail) {
+          d.uid = uid;
+          d.userEmail = normalizedEmail;
+        }
+      });
     } else {
       user = {
         uid,
@@ -259,6 +272,7 @@ app.post('/api/user/sync', (req, res) => {
   }
 
   // Update profile details from Firebase / Firestore source of truth
+  user.email = normalizedEmail;
   user.name = name || user.name;
   user.photoURL = photoURL || user.photoURL;
   if (typeof balance === 'number' && balance >= 0) {
@@ -402,11 +416,20 @@ app.get('/api/user/:uid', (req, res) => {
   res.json(user);
 });
 
-// Get user transactions (deposits & orders)
+// Get user transactions (deposits & orders) matched by UID or normalized email
 app.get('/api/transactions/:uid', (req, res) => {
   const { uid } = req.params;
-  const userOrders = db.orders.filter(o => o.uid === uid).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const userDeposits = db.deposits.filter(d => d.uid === uid).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const queryEmail = typeof req.query.email === 'string' ? req.query.email.toLowerCase().trim() : '';
+  const userEmail = queryEmail || db.users[uid]?.email?.toLowerCase().trim() || '';
+
+  const userOrders = db.orders
+    .filter(o => o.uid === uid || (userEmail && o.userEmail?.toLowerCase().trim() === userEmail))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const userDeposits = db.deposits
+    .filter(d => d.uid === uid || (userEmail && d.userEmail?.toLowerCase().trim() === userEmail))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
   res.json({ orders: userOrders, deposits: userDeposits });
 });
 
@@ -456,7 +479,7 @@ app.post('/api/deposits', (req, res) => {
   const newDeposit: DepositTransaction = {
     id: depositId,
     uid,
-    userEmail: user.email,
+    userEmail: (user.email || userEmail || '').toLowerCase().trim(),
     amount: numericAmount,
     senderName: senderName.trim(),
     status: 'Menunggu Konfirmasi Admin',
@@ -533,7 +556,7 @@ app.post('/api/orders/bulk', async (req, res) => {
   const order: OrderTransaction = {
     id: orderId,
     uid,
-    userEmail: user.email,
+    userEmail: (user.email || userEmail || '').toLowerCase().trim(),
     productId: 'bulk-am',
     productName: 'Bulk AM',
     email: `${qty} Akun Bulk AM`,
@@ -653,7 +676,7 @@ app.post('/api/orders/verif', async (req, res) => {
   const order: OrderTransaction = {
     id: orderId,
     uid,
-    userEmail: user.email,
+    userEmail: (user.email || userEmail || '').toLowerCase().trim(),
     productId: 'am-verif',
     productName: 'AM Verif',
     email: targetEmail,
@@ -1222,12 +1245,17 @@ app.post('/api/admin/users/create', verifyAdmin, (req, res) => {
 
 // Admin Update Order Status manually
 app.post('/api/admin/orders/status', verifyAdmin, (req, res) => {
-  const { orderId, status } = req.body;
+  const { orderId, status, orderData } = req.body;
   if (!orderId || !['Berhasil', 'Gagal', 'Sedang diproses'].includes(status)) {
     return res.status(400).json({ error: 'Parameter status order tidak valid.' });
   }
 
-  const order = db.orders.find(o => o.id === orderId);
+  let order = db.orders.find(o => o.id === orderId);
+  if (!order && orderData && orderData.id) {
+    const newOrder: OrderTransaction = { ...orderData };
+    order = newOrder;
+    db.orders.unshift(newOrder);
+  }
   if (!order) {
     return res.status(404).json({ error: 'Order tidak ditemukan.' });
   }

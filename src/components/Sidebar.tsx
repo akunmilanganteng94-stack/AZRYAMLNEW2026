@@ -45,14 +45,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`hidden md:flex flex-col justify-between h-screen sticky top-0 transition-all duration-200 z-40 bg-white border-r-2 border-slate-950 ${
+      className={`hidden md:flex flex-col justify-between h-screen sticky top-0 transition-all duration-200 z-40 bg-[#DCE4FB] border-r-2 border-slate-950 ${
         collapsed ? 'w-[84px]' : 'w-[272px]'
       }`}
     >
       {/* Top Workspace Brand + Balance + Navigation */}
       <div className="flex flex-col min-h-0 overflow-y-auto">
         {/* Header Brand */}
-        <div className="h-16 flex items-center justify-between px-4 border-b-2 border-slate-950 bg-[#FFFDF7]">
+        <div className="h-16 flex items-center justify-between px-4 border-b-2 border-slate-950 bg-gradient-to-r from-[#DCE4FB] to-[#F0F4FF]">
           {!collapsed ? (
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-[#FFE600] p-1 border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] flex items-center justify-center overflow-hidden shrink-0">
@@ -98,7 +98,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Modern Sidebar Balance Module */}
         {!collapsed ? (
-          <div className="p-4 border-b-2 border-slate-950 bg-[#F4F3EE]">
+          <div className="p-4 border-b-2 border-slate-950 bg-[#EBF1FF]">
             <div className="p-3.5 rounded-2xl bg-[#FFE600] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-950">
@@ -132,7 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
         ) : (
-          <div className="p-3 border-b-2 border-slate-950 bg-[#F4F3EE] text-center">
+          <div className="p-3 border-b-2 border-slate-950 bg-[#EBF1FF] text-center">
             <button
               onClick={() => setActiveTab('deposit')}
               className="w-11 h-11 mx-auto rounded-xl bg-[#FFE600] border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] flex items-center justify-center text-slate-950 hover:bg-[#38BDF8] transition-all cursor-pointer"
@@ -168,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? `${item.accent} text-slate-950 border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617]`
                     : isAdminItem
                     ? 'bg-[#FFF7ED] text-slate-950 border-2 border-slate-950 hover:bg-[#FED7AA]'
-                    : 'text-slate-700 border-2 border-transparent hover:border-slate-950 hover:bg-[#F4F3EE] hover:text-slate-950'
+                    : 'text-slate-800 border-2 border-transparent hover:border-slate-950 hover:bg-[#F0F4FF] hover:text-slate-950'
                 }`}
                 title={collapsed ? item.label : undefined}
               >
@@ -178,7 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       ? 'bg-white border-slate-950 text-slate-950'
                       : isAdminItem
                       ? 'bg-[#FB923C] border-slate-950 text-slate-950'
-                      : 'bg-[#F4F3EE] border-slate-950 text-slate-950'
+                      : 'bg-[#F0F4FF] border-slate-950 text-slate-950'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -200,9 +200,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Bottom Profile & Logout Section */}
-      <div className="p-3 border-t-2 border-slate-950 bg-[#FFFDF7] space-y-2">
+      <div className="p-3 border-t-2 border-slate-950 bg-[#DCE4FB] space-y-2">
         {userProfile && !collapsed && (
-          <div className="px-3 py-2 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 flex items-center gap-2.5">
+          <div className="px-3 py-2 rounded-xl bg-[#F0F4FF] border-2 border-slate-950 flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#38BDF8] border-2 border-slate-950 flex items-center justify-center font-display font-black text-xs text-slate-950 shrink-0">
               {userProfile.name.charAt(0).toUpperCase()}
             </div>

@@ -22,7 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAuth, activeTab, setActive
   const currentMeta = TAB_TITLES[activeTab] || TAB_TITLES.home;
 
   return (
-    <header className="sticky top-0 z-30 w-full h-16 border-b-2 border-slate-950 bg-white px-4 sm:px-6 flex items-center justify-between">
+    <header className="sticky top-0 z-30 w-full h-16 border-b-2 border-slate-950 bg-gradient-to-r from-[#F0F4FF] via-white to-[#EBF1FF] px-4 sm:px-6 flex items-center justify-between">
       {/* Brand / Context Zone */}
       <div className="flex items-center gap-3 min-w-0">
         <button
@@ -53,7 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAuth, activeTab, setActive
 
         {/* Desktop Breadcrumb */}
         <div className="hidden md:flex items-center gap-2.5">
-          <span className="text-xs font-extrabold uppercase tracking-widest px-2.5 py-1 rounded-lg bg-[#F4F3EE] border-2 border-slate-950 text-slate-950">
+          <span className="text-xs font-extrabold uppercase tracking-widest px-2.5 py-1 rounded-lg bg-[#EBF1FF] border-2 border-slate-950 text-slate-950">
             AZRYL
           </span>
           <span className="text-slate-400 font-bold">/</span>

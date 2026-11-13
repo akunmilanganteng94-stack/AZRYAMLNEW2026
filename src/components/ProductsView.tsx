@@ -9,6 +9,10 @@ import {
   formatValidUntil
 } from '../utils/orderFormatting.ts';
 import {
+  sanitizeForFirestore,
+  appendUserOrderCache
+} from '../utils/transactionSync.ts';
+import {
   ShoppingBag,
   Minus,
   Plus,
@@ -186,7 +190,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
       setBulkOrderResult(data.order);
       if (data.order?.id) {
-        setDoc(doc(db, 'orders', data.order.id), data.order, { merge: true }).catch(() => {});
+        appendUserOrderCache(userProfile.uid, userProfile.email, data.order);
+        await setDoc(
+          doc(db, 'orders', data.order.id),
+          sanitizeForFirestore(data.order),
+          { merge: true }
+        ).catch((fsErr) => {
+          console.warn('Firestore order sync warning:', fsErr);
+        });
       }
       if (typeof data.currentBalance === 'number') {
         updateBalanceLocally(data.currentBalance);
@@ -261,7 +272,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
       setVerifOrderResult(data.order);
       if (data.order?.id) {
-        setDoc(doc(db, 'orders', data.order.id), data.order, { merge: true }).catch(() => {});
+        appendUserOrderCache(userProfile.uid, userProfile.email, data.order);
+        await setDoc(
+          doc(db, 'orders', data.order.id),
+          sanitizeForFirestore(data.order),
+          { merge: true }
+        ).catch((fsErr) => {
+          console.warn('Firestore order sync warning:', fsErr);
+        });
       }
       if (typeof data.currentBalance === 'number') {
         updateBalanceLocally(data.currentBalance);
@@ -308,7 +326,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center p-1.5 bg-[#F4F3EE] rounded-xl border-2 border-slate-950 gap-1.5 shrink-0">
+        <div className="flex items-center p-1.5 bg-[#EBF1FF] rounded-xl border-2 border-slate-950 gap-1.5 shrink-0">
           <button
             onClick={() => {
               setActiveTabLocal('bulk-am');
@@ -445,7 +463,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                           className={`h-11 rounded-xl text-xs font-black border-2 border-slate-950 transition-all cursor-pointer ${
                             bulkQuantity === num
                               ? 'bg-[#FFE600] text-slate-950 shadow-[3px_3px_0px_0px_#020617]'
-                              : 'bg-[#F4F3EE] text-slate-700 hover:bg-white hover:text-slate-950'
+                              : 'bg-[#EBF1FF] text-slate-700 hover:bg-white hover:text-slate-950'
                           }`}
                         >
                           {num}
@@ -465,7 +483,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 </div>
 
                 {/* Total Price Card */}
-                <div className="p-4 rounded-2xl bg-[#FFFDF5] border-2 border-slate-950 space-y-2">
+                <div className="p-4 rounded-2xl bg-[#F0F4FF] border-2 border-slate-950 space-y-2">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                     <span>Harga Satuan:</span>
                     <span className="font-mono">{bulkProduct.price.toLocaleString()}</span>
@@ -622,7 +640,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <div className="p-2.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 flex items-center justify-between gap-2">
+                            <div className="p-2.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex items-center justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">
                                   Email
@@ -647,7 +665,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                               )}
                             </div>
 
-                            <div className="p-2.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 flex items-center justify-between gap-2">
+                            <div className="p-2.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex items-center justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">
                                   Inbox Link
@@ -862,7 +880,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 )}
 
                 {/* Price & Balance Info */}
-                <div className="p-4 rounded-2xl bg-[#FFFDF5] border-2 border-slate-950 space-y-2">
+                <div className="p-4 rounded-2xl bg-[#F0F4FF] border-2 border-slate-950 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-black uppercase text-slate-950">Biaya Verifikasi:</span>
                     <span className="text-xl font-black font-mono text-[#2563EB] tabular-nums">
@@ -1011,7 +1029,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               Periksa kembali rincian pemesanan Anda sebelum saldo dipotong.
             </p>
 
-            <div className="p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 text-xs space-y-2 mb-5">
+            <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 text-xs space-y-2 mb-5">
               <div className="flex justify-between">
                 <span className="font-semibold text-slate-600">Layanan:</span>
                 <span className="font-black text-slate-950">Bulk AM</span>
@@ -1033,7 +1051,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowBulkConfirm(false)}
-                className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F4F3EE] text-slate-950 text-xs font-extrabold nb-btn cursor-pointer"
+                className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#EBF1FF] text-slate-950 text-xs font-extrabold nb-btn cursor-pointer"
               >
                 Batal
               </button>

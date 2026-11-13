@@ -156,7 +156,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClearResetCode?.();
             onClose();
           }}
-          className="absolute top-4 right-4 p-2 text-slate-950 rounded-xl bg-[#F4F3EE] hover:bg-[#FFE600] border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+          className="absolute top-4 right-4 p-2 text-slate-950 rounded-xl bg-[#EBF1FF] hover:bg-[#FFE600] border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
@@ -339,7 +339,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               onClick={handleGoogleLogin}
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-[#FFFDF7] hover:bg-[#FFE600] text-slate-950 text-xs font-extrabold nb-btn flex items-center justify-center gap-2.5 cursor-pointer"
+              className="w-full py-2.5 px-4 rounded-xl bg-[#F0F4FF] hover:bg-[#FFE600] text-slate-950 text-xs font-extrabold nb-btn flex items-center justify-center gap-2.5 cursor-pointer"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24">
                 <path

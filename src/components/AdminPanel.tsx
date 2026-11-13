@@ -1,7 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useToast } from './Toast.tsx';
 import { db, collection, doc, onSnapshot, setDoc, increment } from '../lib/firebase.ts';
+import {
+  sanitizeForFirestore,
+  mergeOrders as mergeOrderLists,
+  mergeDeposits as mergeDepositLists
+} from '../utils/transactionSync.ts';
 import {
   UserProfile,
   DepositTransaction,
@@ -47,13 +52,20 @@ interface AdminPanelProps {
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentActiveTab }) => {
-  const { userProfile, refreshUserProfile, changeUserRole } = useAuth();
+  const { userProfile, storeSettings, refreshUserProfile, changeUserRole } = useAuth();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<
     'dashboard' | 'deposits' | 'users' | 'orders' | 'products' | 'api' | 'store' | 'audit'
   >('dashboard');
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [stats, setStats] = useState<DashboardStats>({
+    totalUsers: 0,
+    totalTransactions: 0,
+    totalDeposit: 0,
+    totalRevenue: 0,
+    successfulOrders: 0,
+    pendingDeposits: 0
+  });
   const [deposits, setDeposits] = useState<DepositTransaction[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [orders, setOrders] = useState<OrderTransaction[]>([]);
@@ -104,35 +116,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
     'x-admin-email': userProfile?.email || 'apriliansyahazril10@gmail.com'
   };
 
-  const mergeDeposits = (apiList: DepositTransaction[], fsList: DepositTransaction[]) => {
-    const map = new Map<string, DepositTransaction>();
-    [...apiList, ...fsList].forEach((dep) => {
-      if (!dep || !dep.id) return;
-      const existing = map.get(dep.id);
-      if (!existing) {
-        map.set(dep.id, dep);
-      } else {
-        const existingPending = existing.status === 'Menunggu Konfirmasi Admin';
-        const nextPending = dep.status === 'Menunggu Konfirmasi Admin';
-        if (existingPending && !nextPending) {
-          map.set(dep.id, dep);
-        }
-      }
-    });
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-  };
-
   const [apiDeposits, setApiDeposits] = useState<DepositTransaction[]>([]);
   const [fsDeposits, setFsDeposits] = useState<DepositTransaction[]>([]);
+  const [apiOrders, setApiOrders] = useState<OrderTransaction[]>([]);
+  const [fsOrders, setFsOrders] = useState<OrderTransaction[]>([]);
   const [apiUsers, setApiUsers] = useState<UserProfile[]>([]);
   const [fsUsers, setFsUsers] = useState<UserProfile[]>([]);
   const [hasLoadedFsUsers, setHasLoadedFsUsers] = useState<boolean>(false);
 
   useEffect(() => {
-    setDeposits(mergeDeposits(apiDeposits, fsDeposits));
+    setDeposits(mergeDepositLists(apiDeposits, fsDeposits));
   }, [apiDeposits, fsDeposits]);
+
+  useEffect(() => {
+    setOrders(mergeOrderLists(apiOrders, fsOrders));
+  }, [apiOrders, fsOrders]);
 
   useEffect(() => {
     const sourceList = hasLoadedFsUsers ? fsUsers : apiUsers;
@@ -155,7 +153,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
   const fetchAllAdminData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [statsRes, depRes, userRes, prodRes, ordRes, setRes, audRes] = await Promise.all([
+      const results = await Promise.allSettled([
         fetch('/api/admin/stats', { headers: adminHeaders }),
         fetch('/api/admin/deposits', { headers: adminHeaders }),
         fetch('/api/admin/users', { headers: adminHeaders }),
@@ -165,13 +163,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
         fetch('/api/admin/audit-logs', { headers: adminHeaders })
       ]);
 
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (depRes.ok) setApiDeposits(await depRes.json());
-      if (userRes.ok) setApiUsers(await userRes.json());
-      if (prodRes.ok) setProducts(await prodRes.json());
-      if (ordRes.ok) setOrders(await ordRes.json());
-      if (setRes.ok) setSettings(await setRes.json());
-      if (audRes.ok) setAuditLogs(await audRes.json());
+      const getJsonIfOk = async (idx: number) => {
+        const result = results[idx];
+        if (result.status === 'fulfilled' && result.value.ok) {
+          return result.value.json();
+        }
+        return null;
+      };
+
+      const [statsData, depData, userData, prodData, ordData, setData, audData] = await Promise.all([
+        getJsonIfOk(0),
+        getJsonIfOk(1),
+        getJsonIfOk(2),
+        getJsonIfOk(3),
+        getJsonIfOk(4),
+        getJsonIfOk(5),
+        getJsonIfOk(6)
+      ]);
+
+      if (statsData) setStats(statsData);
+      if (depData) setApiDeposits(depData);
+      if (userData) setApiUsers(userData);
+      if (prodData) setProducts(prodData);
+      if (ordData) setApiOrders(ordData);
+      if (setData) setSettings(setData);
+      if (audData) setAuditLogs(audData);
     } catch (err) {
       console.error(err);
       if (!silent) showToast('Gagal memuat data admin.', 'error');
@@ -212,9 +228,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
         const list: DepositTransaction[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as DepositTransaction;
-          if (data && data.id) list.push(data);
+          if (data && (data.id || docSnap.id)) {
+            list.push({ ...data, id: data.id || docSnap.id });
+          }
         });
         setFsDeposits(list);
+      },
+      () => {}
+    );
+
+    const unsubOrders = onSnapshot(
+      collection(db, 'orders'),
+      (snapshot) => {
+        const list: OrderTransaction[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as OrderTransaction;
+          if (data && (data.id || docSnap.id)) {
+            list.push({ ...data, id: data.id || docSnap.id });
+          }
+        });
+        setFsOrders(list);
       },
       () => {}
     );
@@ -226,6 +259,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
     return () => {
       unsubUsers();
       unsubDeposits();
+      unsubOrders();
       clearInterval(interval);
     };
   }, [userProfile?.uid, userProfile?.role, isAdmin]);
@@ -262,7 +296,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       };
 
       try {
-        await setDoc(doc(db, 'deposits', selectedDeposit.id), updatedDeposit, { merge: true });
+        await setDoc(
+          doc(db, 'deposits', selectedDeposit.id),
+          sanitizeForFirestore(updatedDeposit),
+          { merge: true }
+        );
         if (actionType === 'approve' && selectedDeposit.uid) {
           await setDoc(
             doc(db, 'users', selectedDeposit.uid),
@@ -418,7 +456,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       const data = await res.json();
       if (res.ok) {
         try {
-          await setDoc(doc(db, 'users', data.user.uid), data.user, { merge: true });
+          await setDoc(doc(db, 'users', data.user.uid), sanitizeForFirestore(data.user), { merge: true });
         } catch {
           // ignore
         }
@@ -497,7 +535,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
     key: 'storeOpen' | 'depositOpen' | 'maintenanceMode',
     val: boolean
   ) => {
-    if (!settings) return;
     try {
       const res = await fetch('/api/admin/settings', {
         method: 'POST',
@@ -506,7 +543,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       });
 
       if (res.ok) {
-        setSettings((prev) => (prev ? { ...prev, [key]: val } : null));
+        const resData = await res.json().catch(() => ({}));
+        setSettings((prev) =>
+          resData.settings || (prev ? { ...prev, [key]: val } : null)
+        );
         showToast(`Pengaturan diubah: ${key} = ${val ? 'Aktif' : 'Nonaktif'}`, 'success');
       }
     } catch (err) {
@@ -619,15 +659,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
     orderId: string,
     nextStatus: 'Berhasil' | 'Gagal' | 'Sedang diproses'
   ) => {
+    const existingOrder = orders.find((o) => o.id === orderId);
     try {
       const res = await fetch('/api/admin/orders/status', {
         method: 'POST',
         headers: adminHeaders,
-        body: JSON.stringify({ orderId, status: nextStatus })
+        body: JSON.stringify({ orderId, status: nextStatus, orderData: existingOrder })
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const updatedOrder = data.order || (existingOrder ? {
+          ...existingOrder,
+          status: nextStatus,
+          ...(nextStatus === 'Berhasil' || nextStatus === 'Gagal'
+            ? { completedAt: new Date().toISOString() }
+            : {})
+        } : null);
+
+        if (updatedOrder) {
+          await setDoc(
+            doc(db, 'orders', orderId),
+            sanitizeForFirestore(updatedOrder),
+            { merge: true }
+          ).catch(() => {});
+        }
+
         showToast(`Status order ${orderId} diubah menjadi ${nextStatus}`, 'success');
-        fetchAllAdminData();
+        fetchAllAdminData(true);
       }
     } catch (err) {
       showToast('Gagal mengubah status order', 'error');
@@ -660,6 +718,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
   }
 
   const pendingDeposits = deposits.filter((d) => d.status === 'Menunggu Konfirmasi Admin');
+
+  const displayStats = useMemo<DashboardStats>(() => {
+    const hasMergedTx = orders.length > 0 || deposits.length > 0;
+    const totalDeposit = hasMergedTx
+      ? deposits
+          .filter((d) => d.status === 'Berhasil')
+          .reduce((sum, d) => sum + (Number(d.amount) || 0), 0)
+      : stats.totalDeposit;
+    const totalRevenue = hasMergedTx
+      ? orders
+          .filter((o) => o.status === 'Berhasil')
+          .reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0)
+      : stats.totalRevenue;
+    const successfulOrders = hasMergedTx
+      ? orders.filter((o) => o.status === 'Berhasil').length
+      : stats.successfulOrders;
+    const totalTransactions = hasMergedTx
+      ? orders.length + deposits.length
+      : stats.totalTransactions;
+
+    return {
+      totalUsers: users.length > 0 ? users.length : stats.totalUsers,
+      totalTransactions,
+      totalDeposit,
+      totalRevenue,
+      successfulOrders,
+      pendingDeposits: deposits.length > 0 ? pendingDeposits.length : stats.pendingDeposits
+    };
+  }, [users.length, orders, deposits, pendingDeposits.length, stats]);
+
+  const effectiveStoreOpen = settings?.storeOpen ?? storeSettings?.storeOpen ?? true;
+  const effectiveDepositOpen = settings?.depositOpen ?? storeSettings?.depositOpen ?? true;
 
   const filteredDeposits = deposits.filter((d) => {
     const matchFilter = depositFilter === 'all' ? true : d.status === depositFilter;
@@ -784,7 +874,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                   ? 'bg-[#FFE600] text-slate-950 shadow-[3px_3px_0px_0px_#020617]'
                   : tab.highlight
                   ? 'bg-[#FFE4E6] text-slate-950 hover:bg-[#FECDD3]'
-                  : 'bg-white text-slate-800 hover:bg-[#F4F3EE]'
+                  : 'bg-white text-slate-800 hover:bg-[#EBF1FF]'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -795,9 +885,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       </div>
 
       {/* =========================================================================
-          TAB 1: DASHBOARD OVERVIEW
+          TAB 1: DASHBOARD OVERVIEW (Always rendered immediately)
          ========================================================================= */}
-      {activeTab === 'dashboard' && stats && (
+      {activeTab === 'dashboard' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="p-5 rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-1">
@@ -805,7 +895,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                 Total Pengguna (Firebase)
               </span>
               <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
-                {users.length} <span className="text-xs font-sans font-bold text-slate-600">Akun</span>
+                {displayStats.totalUsers}{' '}
+                <span className="text-xs font-sans font-bold text-slate-600">Akun</span>
               </div>
               <div className="text-[11px] font-bold text-[#2563EB]">Tersinkronisasi dengan Firestore</div>
             </div>
@@ -815,10 +906,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                 Total Deposit Berhasil
               </span>
               <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
-                {stats.totalDeposit.toLocaleString()}
+                {displayStats.totalDeposit.toLocaleString()}
               </div>
               <div className="text-[11px] font-bold text-slate-800 font-mono">
-                Rp {stats.totalDeposit.toLocaleString('id-ID')} masuk
+                Rp {displayStats.totalDeposit.toLocaleString('id-ID')} masuk
               </div>
             </div>
 
@@ -827,10 +918,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                 Total Pendapatan (Order)
               </span>
               <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
-                {stats.totalRevenue.toLocaleString()}
+                {displayStats.totalRevenue.toLocaleString()}
               </div>
               <div className="text-[11px] font-bold text-slate-800">
-                {stats.successfulOrders} pesanan selesai
+                {displayStats.successfulOrders} pesanan selesai
               </div>
             </div>
 
@@ -839,7 +930,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                 Total Transaksi
               </span>
               <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
-                {stats.totalTransactions}{' '}
+                {displayStats.totalTransactions}{' '}
                 <span className="text-xs font-sans font-bold text-slate-600">Aktivitas</span>
               </div>
               <div className="text-[11px] font-bold text-slate-600">Order & Deposit</div>
@@ -850,7 +941,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                 Deposit Menunggu Konfirmasi
               </span>
               <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
-                {pendingDeposits.length}{' '}
+                {displayStats.pendingDeposits}{' '}
                 <span className="text-xs font-sans font-bold text-slate-700">Permintaan</span>
               </div>
               <button
@@ -868,13 +959,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
               <div className="text-xl font-black font-display text-slate-950 flex items-center gap-2">
                 <span
                   className={`w-3 h-3 rounded-full border-2 border-slate-950 ${
-                    settings?.storeOpen ? 'bg-[#16A34A]' : 'bg-[#DC2626]'
+                    effectiveStoreOpen ? 'bg-[#16A34A]' : 'bg-[#DC2626]'
                   }`}
                 />
-                <span>{settings?.storeOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+                <span>{effectiveStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
               </div>
               <div className="text-[11px] font-bold text-slate-600">
-                Deposit QRIS: {settings?.depositOpen ? 'Buka' : 'Tutup'}
+                Deposit QRIS: {effectiveDepositOpen ? 'Buka' : 'Tutup'}
               </div>
             </div>
           </div>
@@ -913,17 +1004,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                 </p>
               </div>
               <button
-                onClick={() => handleToggleSetting('storeOpen', !settings?.storeOpen)}
+                onClick={() => handleToggleSetting('storeOpen', !effectiveStoreOpen)}
                 className={`px-4 py-2 rounded-xl font-black text-xs nb-btn flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                  settings?.storeOpen ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
+                  effectiveStoreOpen ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
                 }`}
               >
-                {settings?.storeOpen ? (
+                {effectiveStoreOpen ? (
                   <ToggleRight className="w-4 h-4" />
                 ) : (
                   <ToggleLeft className="w-4 h-4" />
                 )}
-                <span>{settings?.storeOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+                <span>{effectiveStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
               </button>
             </div>
 
@@ -935,17 +1026,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                 </p>
               </div>
               <button
-                onClick={() => handleToggleSetting('depositOpen', !settings?.depositOpen)}
+                onClick={() => handleToggleSetting('depositOpen', !effectiveDepositOpen)}
                 className={`px-4 py-2 rounded-xl font-black text-xs nb-btn flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                  settings?.depositOpen ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
+                  effectiveDepositOpen ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
                 }`}
               >
-                {settings?.depositOpen ? (
+                {effectiveDepositOpen ? (
                   <ToggleRight className="w-4 h-4" />
                 ) : (
                   <ToggleLeft className="w-4 h-4" />
                 )}
-                <span>{settings?.depositOpen ? 'Deposit Buka' : 'Deposit Tutup'}</span>
+                <span>{effectiveDepositOpen ? 'Deposit Buka' : 'Deposit Tutup'}</span>
               </button>
             </div>
           </div>
@@ -1154,7 +1245,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
               </thead>
               <tbody className="divide-y-2 divide-slate-950/15 text-slate-950">
                 {filteredUsers.map((u) => (
-                  <tr key={u.uid} className="hover:bg-[#FFFDF5] transition-colors">
+                  <tr key={u.uid} className="hover:bg-[#F0F4FF] transition-colors">
                     <td className="p-3.5">
                       <div className="font-black text-slate-950">{u.name}</div>
                       <div className="text-[11px] font-mono text-slate-600">{u.email}</div>
@@ -1325,7 +1416,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                       onClick={() =>
                         handleUpdateOrderStatus(ord.id, ord.status === 'Berhasil' ? 'Gagal' : 'Berhasil')
                       }
-                      className="px-2.5 py-1 rounded-lg bg-[#F4F3EE] hover:bg-[#FFE600] border-2 border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg bg-[#EBF1FF] hover:bg-[#FFE600] border-2 border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
                       title="Ubah status manual"
                     >
                       Ubah Status
@@ -1507,7 +1598,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
 
             <form onSubmit={handleSaveApiConfig} className="space-y-6 pt-5">
               {/* ENDPOINT 1: BULK AM */}
-              <div className="rounded-2xl bg-[#FFFDF7] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
+              <div className="rounded-2xl bg-[#F0F4FF] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
                 <div className="p-4 bg-[#FFE600] border-b-2 border-slate-950 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="px-2.5 py-0.5 rounded-lg bg-[#4ADE80] border-2 border-slate-950 font-mono text-[11px] font-black text-slate-950">
@@ -1592,7 +1683,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                   </div>
 
                   {/* Neo-Brutalist Request Schema & Payload Spec */}
-                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 space-y-2">
+                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 space-y-2">
                     <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-700">
                       <span>Headers & Request Body</span>
                       <span className="px-1.5 py-0.5 rounded bg-white border border-slate-950 font-mono">
@@ -1609,7 +1700,7 @@ Body:    {"total": 1, "provider": "akunlama"}`}
               </div>
 
               {/* ENDPOINT 2: SEND GMAIL */}
-              <div className="rounded-2xl bg-[#FFFDF7] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
+              <div className="rounded-2xl bg-[#F0F4FF] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
                 <div className="p-4 bg-[#38BDF8] border-b-2 border-slate-950 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="px-2.5 py-0.5 rounded-lg bg-[#FFE600] border-2 border-slate-950 font-mono text-[11px] font-black text-slate-950">
@@ -1692,7 +1783,7 @@ Body:    {"total": 1, "provider": "akunlama"}`}
                     </div>
                   </div>
 
-                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 space-y-2">
+                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 space-y-2">
                     <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-700">
                       <span>Headers & Request Body</span>
                       <span className="px-1.5 py-0.5 rounded bg-white border border-slate-950 font-mono">
@@ -1709,7 +1800,7 @@ Body:    {"gmail": "user@gmail.com"}`}
               </div>
 
               {/* ENDPOINT 3: VERIF GMAIL */}
-              <div className="rounded-2xl bg-[#FFFDF7] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
+              <div className="rounded-2xl bg-[#F0F4FF] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
                 <div className="p-4 bg-[#4ADE80] border-b-2 border-slate-950 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="px-2.5 py-0.5 rounded-lg bg-white border-2 border-slate-950 font-mono text-[11px] font-black text-slate-950">
@@ -1792,7 +1883,7 @@ Body:    {"gmail": "user@gmail.com"}`}
                     </div>
                   </div>
 
-                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 space-y-2">
+                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 space-y-2">
                     <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-700">
                       <span>Headers & Request Body</span>
                       <span className="px-1.5 py-0.5 rounded bg-white border border-slate-950 font-mono">
@@ -1843,7 +1934,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
             </h3>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 flex items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex items-center justify-between gap-3">
                 <div>
                   <span className="font-black text-slate-950 block">Penerimaan Pesanan</span>
                   <span className="text-[11px] font-medium text-slate-600">
@@ -1860,7 +1951,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                 </button>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 flex items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex items-center justify-between gap-3">
                 <div>
                   <span className="font-black text-slate-950 block">Pengajuan Deposit QRIS</span>
                   <span className="text-[11px] font-medium text-slate-600">
@@ -1877,7 +1968,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                 </button>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 flex items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex items-center justify-between gap-3">
                 <div>
                   <span className="font-black text-slate-950 block">Mode Pemeliharaan (Maintenance)</span>
                   <span className="text-[11px] font-medium text-slate-600">
@@ -1987,7 +2078,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
               ID Deposit: <span className="font-mono text-[#2563EB]">{selectedDeposit.id}</span>
             </p>
 
-            <div className="p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 text-xs space-y-1.5 mb-4">
+            <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 text-xs space-y-1.5 mb-4">
               <div className="flex justify-between">
                 <span className="font-bold text-slate-600">Pengirim:</span>
                 <span className="text-slate-950 font-black">{selectedDeposit.senderName}</span>
@@ -2018,7 +2109,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => setSelectedDeposit(null)}
-                className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F4F3EE] text-slate-950 text-xs font-extrabold nb-btn cursor-pointer"
+                className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#EBF1FF] text-slate-950 text-xs font-extrabold nb-btn cursor-pointer"
               >
                 Batal
               </button>
@@ -2114,7 +2205,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                 <button
                   type="button"
                   onClick={() => setSelectedUser(null)}
-                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F4F3EE] text-slate-950 text-xs font-extrabold nb-btn cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#EBF1FF] text-slate-950 text-xs font-extrabold nb-btn cursor-pointer"
                 >
                   Batal
                 </button>
@@ -2194,7 +2285,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                 <button
                   type="button"
                   onClick={() => setShowCreateUserModal(false)}
-                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F4F3EE] text-slate-950 font-extrabold nb-btn cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#EBF1FF] text-slate-950 font-extrabold nb-btn cursor-pointer"
                 >
                   Batal
                 </button>

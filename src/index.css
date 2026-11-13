@@ -12,12 +12,13 @@
 
 body {
   font-family: var(--font-sans);
-  background-color: #F4F3EE;
+  background-color: #EBF1FF;
   color: #020617;
   background-image:
-    linear-gradient(to right, rgba(2, 6, 23, 0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(2, 6, 23, 0.045) 1px, transparent 1px);
-  background-size: 28px 28px;
+    linear-gradient(to right, rgba(37, 99, 235, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(37, 99, 235, 0.055) 1px, transparent 1px),
+    linear-gradient(135deg, #EBF1FF 0%, #F0F4FF 50%, #EBF1FF 100%);
+  background-size: 28px 28px, 28px 28px, 100% 100%;
   background-attachment: fixed;
 }
 
@@ -27,7 +28,7 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #E8E6DF;
+  background: #DCE4FB;
   border-left: 2px solid #020617;
 }
 ::-webkit-scrollbar-thumb {
@@ -75,7 +76,7 @@ body {
 
 .nb-input:focus {
   outline: none;
-  background-color: #FFFBEB;
+  background-color: #F0F4FF;
   box-shadow: 3px 3px 0px 0px #020617;
 }
 

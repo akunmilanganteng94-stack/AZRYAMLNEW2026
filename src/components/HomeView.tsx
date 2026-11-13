@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { ProductItem, OrderTransaction, DepositTransaction } from '../types/index.ts';
+import { db, collection, query, where, onSnapshot } from '../lib/firebase.ts';
+import {
+  mergeOrders,
+  mergeDeposits,
+  loadUserTransactionsCache,
+  saveUserTransactionsCache
+} from '../utils/transactionSync.ts';
 import {
   Wallet,
   ArrowUpRight,
@@ -21,9 +28,40 @@ interface HomeViewProps {
 export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedProduct, onOpenAuth }) => {
   const { userProfile, storeSettings, refreshUserProfile } = useAuth();
   const [products, setProducts] = useState<ProductItem[]>([]);
-  const [recentOrders, setRecentOrders] = useState<OrderTransaction[]>([]);
-  const [recentDeposits, setRecentDeposits] = useState<DepositTransaction[]>([]);
+  const [apiOrders, setApiOrders] = useState<OrderTransaction[]>([]);
+  const [fsUidOrders, setFsUidOrders] = useState<OrderTransaction[]>([]);
+  const [fsEmailOrders, setFsEmailOrders] = useState<OrderTransaction[]>([]);
+  const [apiDeposits, setApiDeposits] = useState<DepositTransaction[]>([]);
+  const [fsUidDeposits, setFsUidDeposits] = useState<DepositTransaction[]>([]);
+  const [fsEmailDeposits, setFsEmailDeposits] = useState<DepositTransaction[]>([]);
+  const [allOrders, setAllOrders] = useState<OrderTransaction[]>([]);
+  const [allDeposits, setAllDeposits] = useState<DepositTransaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (!userProfile?.uid) {
+      setAllOrders([]);
+      setAllDeposits([]);
+      return;
+    }
+
+    const cached = loadUserTransactionsCache(userProfile.uid, userProfile.email);
+    const mergedOrders = mergeOrders(cached.orders, apiOrders, fsUidOrders, fsEmailOrders);
+    const mergedDeposits = mergeDeposits(cached.deposits, apiDeposits, fsUidDeposits, fsEmailDeposits);
+
+    setAllOrders(mergedOrders);
+    setAllDeposits(mergedDeposits);
+    saveUserTransactionsCache(userProfile.uid, userProfile.email, mergedOrders, mergedDeposits);
+  }, [
+    userProfile?.uid,
+    userProfile?.email,
+    apiOrders,
+    fsUidOrders,
+    fsEmailOrders,
+    apiDeposits,
+    fsUidDeposits,
+    fsEmailDeposits
+  ]);
 
   const fetchHomeData = async () => {
     try {
@@ -34,11 +72,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
       }
 
       if (userProfile?.uid) {
-        const txRes = await fetch(`/api/transactions/${userProfile.uid}`);
+        const emailParam = userProfile.email ? `?email=${encodeURIComponent(userProfile.email)}` : '';
+        const txRes = await fetch(`/api/transactions/${userProfile.uid}${emailParam}`);
         if (txRes.ok) {
           const txData = await txRes.json();
-          setRecentOrders((txData.orders || []).slice(0, 3));
-          setRecentDeposits((txData.deposits || []).slice(0, 3));
+          setApiOrders(txData.orders || []);
+          setApiDeposits(txData.deposits || []);
         }
       }
     } catch (err) {
@@ -49,16 +88,99 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
   };
 
   useEffect(() => {
+    if (userProfile?.uid) {
+      const cached = loadUserTransactionsCache(userProfile.uid, userProfile.email);
+      if (cached.orders.length > 0) setAllOrders(cached.orders);
+      if (cached.deposits.length > 0) setAllDeposits(cached.deposits);
+    }
+
     fetchHomeData();
-  }, [userProfile?.uid]);
+    if (!userProfile?.uid) return;
+
+    const normalizedEmail = (userProfile.email || '').toLowerCase().trim();
+
+    const unsubOrdsUid = onSnapshot(
+      query(collection(db, 'orders'), where('uid', '==', userProfile.uid)),
+      (snapshot) => {
+        const list: OrderTransaction[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as OrderTransaction;
+          if (data && (data.id || docSnap.id)) {
+            list.push({ ...data, id: data.id || docSnap.id });
+          }
+        });
+        setFsUidOrders(list);
+      },
+      () => {}
+    );
+
+    const unsubDepsUid = onSnapshot(
+      query(collection(db, 'deposits'), where('uid', '==', userProfile.uid)),
+      (snapshot) => {
+        const list: DepositTransaction[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as DepositTransaction;
+          if (data && (data.id || docSnap.id)) {
+            list.push({ ...data, id: data.id || docSnap.id });
+          }
+        });
+        setFsUidDeposits(list);
+      },
+      () => {}
+    );
+
+    let unsubOrdsEmail = () => {};
+    let unsubDepsEmail = () => {};
+
+    if (normalizedEmail) {
+      unsubOrdsEmail = onSnapshot(
+        query(collection(db, 'orders'), where('userEmail', '==', normalizedEmail)),
+        (snapshot) => {
+          const list: OrderTransaction[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as OrderTransaction;
+            if (data && (data.id || docSnap.id)) {
+              list.push({ ...data, id: data.id || docSnap.id });
+            }
+          });
+          setFsEmailOrders(list);
+        },
+        () => {}
+      );
+
+      unsubDepsEmail = onSnapshot(
+        query(collection(db, 'deposits'), where('userEmail', '==', normalizedEmail)),
+        (snapshot) => {
+          const list: DepositTransaction[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as DepositTransaction;
+            if (data && (data.id || docSnap.id)) {
+              list.push({ ...data, id: data.id || docSnap.id });
+            }
+          });
+          setFsEmailDeposits(list);
+        },
+        () => {}
+      );
+    }
+
+    return () => {
+      unsubOrdsUid();
+      unsubDepsUid();
+      unsubOrdsEmail();
+      unsubDepsEmail();
+    };
+  }, [userProfile?.uid, userProfile?.email]);
 
   const handleOrderProduct = (productId: string) => {
     setSelectedProduct(productId);
     setActiveTab('menu');
   };
 
-  const successfulOrdersCount = recentOrders.filter((o) => o.status === 'Berhasil').length;
-  const totalTransactionsCount = recentOrders.length + recentDeposits.length;
+  const recentOrders = allOrders.slice(0, 3);
+  const recentDeposits = allDeposits.slice(0, 3);
+  const successfulOrdersCount = allOrders.filter((o) => o.status === 'Berhasil').length;
+  const totalTransactionsCount = allOrders.length + allDeposits.length;
 
   return (
     <div className="space-y-6 pb-24 md:pb-8">
@@ -219,7 +341,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
           </div>
         </div>
 
-        <div className="w-full md:w-64 aspect-[16/9] rounded-xl overflow-hidden border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] bg-[#F4F3EE] shrink-0">
+        <div className="w-full md:w-64 aspect-[16/9] rounded-xl overflow-hidden border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] bg-[#EBF1FF] shrink-0">
           <img
             src="https://cdn.corenexis.com/f/hUimw94N.webp"
             alt="AM Promo Banner"
@@ -355,7 +477,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
             {recentOrders.map((ord) => (
               <div
                 key={ord.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 text-xs"
+                className="flex items-center justify-between p-3 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 text-xs"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-9 h-9 rounded-lg bg-[#FFE600] border-2 border-slate-950 text-slate-950 flex items-center justify-center font-black shrink-0">
@@ -385,6 +507,42 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
                     }`}
                   >
                     {ord.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            {recentDeposits.map((dep) => (
+              <div
+                key={dep.id}
+                className="flex items-center justify-between p-3 rounded-xl bg-[#E0F2FE]/60 border-2 border-slate-950 text-xs"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-lg bg-[#38BDF8] border-2 border-slate-950 text-slate-950 flex items-center justify-center font-black shrink-0">
+                    QR
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-slate-950 truncate">
+                      Deposit QRIS · {dep.senderName}
+                    </div>
+                    <div className="text-[11px] text-slate-600 font-mono truncate">{dep.id}</div>
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0 ml-2">
+                  <div className="font-mono font-black text-[#2563EB] tabular-nums">
+                    +{dep.amount.toLocaleString()}
+                  </div>
+                  <span
+                    className={`inline-block mt-0.5 text-[10px] font-black px-2 py-0.5 rounded border border-slate-950 ${
+                      dep.status === 'Berhasil'
+                        ? 'bg-[#4ADE80] text-slate-950'
+                        : dep.status === 'Ditolak'
+                        ? 'bg-[#FB7185] text-slate-950'
+                        : 'bg-[#FFE600] text-slate-950'
+                    }`}
+                  >
+                    {dep.status}
                   </span>
                 </div>
               </div>

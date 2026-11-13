@@ -4,6 +4,10 @@ import { useToast } from './Toast.tsx';
 import { DepositTransaction } from '../types/index.ts';
 import { db, doc, setDoc } from '../lib/firebase.ts';
 import {
+  sanitizeForFirestore,
+  appendUserDepositCache
+} from '../utils/transactionSync.ts';
+import {
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -84,9 +88,14 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
       }
 
       const depositRecord: DepositTransaction = data.deposit;
+      appendUserDepositCache(userProfile.uid, userProfile.email, depositRecord);
 
       try {
-        await setDoc(doc(db, 'deposits', depositRecord.id), depositRecord, { merge: true });
+        await setDoc(
+          doc(db, 'deposits', depositRecord.id),
+          sanitizeForFirestore(depositRecord),
+          { merge: true }
+        );
       } catch (fsErr) {
         console.warn('Firestore deposit sync warning:', fsErr);
       }
@@ -221,7 +230,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
                     className={`py-2 px-2 rounded-xl text-xs font-black border-2 border-slate-950 transition-all cursor-pointer tabular-nums font-mono ${
                       numericAmount === nom
                         ? 'bg-[#FFE600] text-slate-950 shadow-[2px_2px_0px_0px_#020617]'
-                        : 'bg-[#F4F3EE] text-slate-800 hover:bg-white'
+                        : 'bg-[#EBF1FF] text-slate-800 hover:bg-white'
                     }`}
                   >
                     +{nom.toLocaleString()}
@@ -311,7 +320,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
           </div>
 
           {/* Deposit Summary Card */}
-          <div className="p-4 rounded-2xl bg-[#F4F3EE] border-2 border-slate-950 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+          <div className="p-4 rounded-2xl bg-[#EBF1FF] border-2 border-slate-950 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
             <div>
               <span className="text-slate-600 font-bold text-[11px]">Total Transfer:</span>
               <div className="text-lg font-black font-mono text-[#2563EB] tabular-nums">
@@ -329,7 +338,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
           </div>
 
           {/* QRIS Display Container */}
-          <div className="flex flex-col items-center justify-center p-6 bg-[#FFFDF5] rounded-2xl border-2 border-slate-950">
+          <div className="flex flex-col items-center justify-center p-6 bg-[#F0F4FF] rounded-2xl border-2 border-slate-950">
             <div className="max-w-[280px] w-full rounded-2xl overflow-hidden bg-white p-3 border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617]">
               <img
                 src={qrisImageUrl}
@@ -372,7 +381,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
             <button
               type="button"
               onClick={() => setStep('input')}
-              className="py-3 px-4 rounded-xl bg-white hover:bg-[#F4F3EE] text-slate-950 font-extrabold text-xs nb-btn cursor-pointer"
+              className="py-3 px-4 rounded-xl bg-white hover:bg-[#EBF1FF] text-slate-950 font-extrabold text-xs nb-btn cursor-pointer"
             >
               Kembali
             </button>

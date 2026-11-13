@@ -9,6 +9,12 @@ import {
   formatValidUntil
 } from '../utils/orderFormatting.ts';
 import {
+  mergeOrders,
+  mergeDeposits,
+  loadUserTransactionsCache,
+  saveUserTransactionsCache
+} from '../utils/transactionSync.ts';
+import {
   Clock,
   ShoppingBag,
   Wallet,
@@ -41,9 +47,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const [apiOrders, setApiOrders] = useState<OrderTransaction[]>([]);
-  const [fsOrders, setFsOrders] = useState<OrderTransaction[]>([]);
+  const [fsUidOrders, setFsUidOrders] = useState<OrderTransaction[]>([]);
+  const [fsEmailOrders, setFsEmailOrders] = useState<OrderTransaction[]>([]);
   const [apiDeposits, setApiDeposits] = useState<DepositTransaction[]>([]);
-  const [fsDeposits, setFsDeposits] = useState<DepositTransaction[]>([]);
+  const [fsUidDeposits, setFsUidDeposits] = useState<DepositTransaction[]>([]);
+  const [fsEmailDeposits, setFsEmailDeposits] = useState<DepositTransaction[]>([]);
 
   const handleCopy = (text: string, key: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -55,38 +63,29 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
   };
 
   useEffect(() => {
-    const map = new Map<string, OrderTransaction>();
-    [...apiOrders, ...fsOrders].forEach((ord) => {
-      if (!ord || !ord.id) return;
-      const existing = map.get(ord.id);
-      if (!existing || (!existing.apiResponse && ord.apiResponse)) {
-        map.set(ord.id, ord);
-      }
-    });
-    setOrders(
-      Array.from(map.values()).sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      )
-    );
-  }, [apiOrders, fsOrders]);
+    if (!userProfile?.uid) {
+      setOrders([]);
+      setDeposits([]);
+      return;
+    }
 
-  useEffect(() => {
-    const map = new Map<string, DepositTransaction>();
-    [...apiDeposits, ...fsDeposits].forEach((dep) => {
-      if (!dep || !dep.id) return;
-      const existing = map.get(dep.id);
-      if (!existing) {
-        map.set(dep.id, dep);
-      } else if (existing.status === 'Menunggu Konfirmasi Admin' && dep.status !== 'Menunggu Konfirmasi Admin') {
-        map.set(dep.id, dep);
-      }
-    });
-    setDeposits(
-      Array.from(map.values()).sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      )
-    );
-  }, [apiDeposits, fsDeposits]);
+    const cached = loadUserTransactionsCache(userProfile.uid, userProfile.email);
+    const mergedOrders = mergeOrders(cached.orders, apiOrders, fsUidOrders, fsEmailOrders);
+    const mergedDeposits = mergeDeposits(cached.deposits, apiDeposits, fsUidDeposits, fsEmailDeposits);
+
+    setOrders(mergedOrders);
+    setDeposits(mergedDeposits);
+    saveUserTransactionsCache(userProfile.uid, userProfile.email, mergedOrders, mergedDeposits);
+  }, [
+    userProfile?.uid,
+    userProfile?.email,
+    apiOrders,
+    fsUidOrders,
+    fsEmailOrders,
+    apiDeposits,
+    fsUidDeposits,
+    fsEmailDeposits
+  ]);
 
   const fetchTransactions = async () => {
     if (!userProfile?.uid) {
@@ -95,7 +94,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/transactions/${userProfile.uid}`);
+      const emailParam = userProfile.email ? `?email=${encodeURIComponent(userProfile.email)}` : '';
+      const res = await fetch(`/api/transactions/${userProfile.uid}${emailParam}`);
       if (res.ok) {
         const data = await res.json();
         setApiOrders(data.orders || []);
@@ -109,42 +109,91 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
   };
 
   useEffect(() => {
-    fetchTransactions();
-    if (!userProfile?.uid) return;
+    if (!userProfile?.uid) {
+      setLoading(false);
+      return;
+    }
 
-    const depQuery = query(collection(db, 'deposits'), where('uid', '==', userProfile.uid));
-    const unsubDeps = onSnapshot(
-      depQuery,
+    const cached = loadUserTransactionsCache(userProfile.uid, userProfile.email);
+    if (cached.orders.length > 0) setOrders(cached.orders);
+    if (cached.deposits.length > 0) setDeposits(cached.deposits);
+
+    fetchTransactions();
+
+    const normalizedEmail = (userProfile.email || '').toLowerCase().trim();
+
+    const unsubDepsUid = onSnapshot(
+      query(collection(db, 'deposits'), where('uid', '==', userProfile.uid)),
       (snapshot) => {
         const list: DepositTransaction[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as DepositTransaction;
-          if (data && data.id) list.push(data);
+          if (data && (data.id || docSnap.id)) {
+            list.push({ ...data, id: data.id || docSnap.id });
+          }
         });
-        setFsDeposits(list);
+        setFsUidDeposits(list);
       },
       () => {}
     );
 
-    const ordQuery = query(collection(db, 'orders'), where('uid', '==', userProfile.uid));
-    const unsubOrds = onSnapshot(
-      ordQuery,
+    const unsubOrdsUid = onSnapshot(
+      query(collection(db, 'orders'), where('uid', '==', userProfile.uid)),
       (snapshot) => {
         const list: OrderTransaction[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as OrderTransaction;
-          if (data && data.id) list.push(data);
+          if (data && (data.id || docSnap.id)) {
+            list.push({ ...data, id: data.id || docSnap.id });
+          }
         });
-        setFsOrders(list);
+        setFsUidOrders(list);
       },
       () => {}
     );
 
+    let unsubDepsEmail = () => {};
+    let unsubOrdsEmail = () => {};
+
+    if (normalizedEmail) {
+      unsubDepsEmail = onSnapshot(
+        query(collection(db, 'deposits'), where('userEmail', '==', normalizedEmail)),
+        (snapshot) => {
+          const list: DepositTransaction[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as DepositTransaction;
+            if (data && (data.id || docSnap.id)) {
+              list.push({ ...data, id: data.id || docSnap.id });
+            }
+          });
+          setFsEmailDeposits(list);
+        },
+        () => {}
+      );
+
+      unsubOrdsEmail = onSnapshot(
+        query(collection(db, 'orders'), where('userEmail', '==', normalizedEmail)),
+        (snapshot) => {
+          const list: OrderTransaction[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as OrderTransaction;
+            if (data && (data.id || docSnap.id)) {
+              list.push({ ...data, id: data.id || docSnap.id });
+            }
+          });
+          setFsEmailOrders(list);
+        },
+        () => {}
+      );
+    }
+
     return () => {
-      unsubDeps();
-      unsubOrds();
+      unsubDepsUid();
+      unsubOrdsUid();
+      unsubDepsEmail();
+      unsubOrdsEmail();
     };
-  }, [userProfile?.uid]);
+  }, [userProfile?.uid, userProfile?.email]);
 
   const toggleExpand = (id: string) => {
     setExpandedRow((prev) => (prev === id ? null : id));
@@ -193,10 +242,30 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-2xl border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617]">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className="px-2 py-0.5 rounded bg-[#FFE600] border border-slate-950 text-[10px] font-black tracking-widest text-slate-950 uppercase">
               AZRYL HISTORY
             </span>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveCategory('orders');
+                setStatusFilter('Berhasil');
+              }}
+              className="px-2 py-0.5 rounded bg-[#DCFCE7] hover:bg-[#4ADE80] border border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
+            >
+              Order Berhasil: {orders.filter((o) => o.status === 'Berhasil').length}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveCategory('deposits');
+                setStatusFilter('Berhasil');
+              }}
+              className="px-2 py-0.5 rounded bg-[#E0F2FE] hover:bg-[#38BDF8] border border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
+            >
+              Deposit Berhasil: {deposits.filter((d) => d.status === 'Berhasil').length}
+            </button>
           </div>
           <h1 className="text-xl sm:text-2xl font-black font-display text-slate-950">
             Riwayat Transaksi
@@ -320,7 +389,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                 >
                   <div
                     onClick={() => toggleExpand(ord.id)}
-                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none hover:bg-[#FFFDF5] transition-colors"
+                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none hover:bg-[#F0F4FF] transition-colors"
                   >
                     <div className="flex items-start gap-3">
                       <div
@@ -385,7 +454,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                   {/* AM Bulk: ONLY email, inbox_link, validUntil */}
                   {isBulk && bulkAccounts.length > 0 && (
                     <div className="px-4 pb-4 pt-1 space-y-2.5">
-                      <div className="p-3.5 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 space-y-2.5">
+                      <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-black uppercase tracking-widest text-slate-950">
                             Akun Bulk AM · AZRYL
@@ -414,7 +483,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                               </div>
 
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                <div className="px-3 py-2 rounded-lg bg-[#FFFDF5] border-2 border-slate-950 flex items-center justify-between gap-2">
+                                <div className="px-3 py-2 rounded-lg bg-[#F0F4FF] border-2 border-slate-950 flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2 min-w-0">
                                     <Mail className="w-3.5 h-3.5 text-slate-950 shrink-0" />
                                     <div className="min-w-0">
@@ -442,7 +511,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                                   )}
                                 </div>
 
-                                <div className="px-3 py-2 rounded-lg bg-[#FFFDF5] border-2 border-slate-950 flex items-center justify-between gap-2">
+                                <div className="px-3 py-2 rounded-lg bg-[#F0F4FF] border-2 border-slate-950 flex items-center justify-between gap-2">
                                   <div className="min-w-0 flex-1">
                                     <div className="text-[9px] font-black uppercase tracking-wider text-slate-500">
                                       Inbox Link
@@ -507,7 +576,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
 
                   {/* Expandable Extra Details */}
                   {isExpanded && (
-                    <div className="px-4 pb-4 pt-3 border-t-2 border-slate-950 bg-[#F4F3EE] text-xs space-y-2">
+                    <div className="px-4 pb-4 pt-3 border-t-2 border-slate-950 bg-[#EBF1FF] text-xs space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                         <div>
                           <span className="font-bold text-slate-600">ID Transaksi: </span>

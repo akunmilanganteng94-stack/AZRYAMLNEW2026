@@ -236,7 +236,7 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
         {isEditing && (
           <form
             onSubmit={handleUpdateProfile}
-            className="p-4 rounded-xl bg-[#FFFDF5] border-2 border-slate-950 space-y-3"
+            className="p-4 rounded-xl bg-[#F0F4FF] border-2 border-slate-950 space-y-3"
           >
             <label className="block text-xs font-extrabold uppercase text-slate-950">
               Ubah Nama Tampilan
@@ -263,7 +263,7 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
 
         {/* Info Rows */}
         <div className="space-y-3 text-xs">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[#F4F3EE] border-2 border-slate-950">
+          <div className="flex items-center justify-between p-3 rounded-xl bg-[#EBF1FF] border-2 border-slate-950">
             <div className="flex items-center gap-2.5 min-w-0">
               <Key className="w-4 h-4 text-slate-950 shrink-0" />
               <div className="min-w-0">
@@ -282,7 +282,7 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
             </button>
           </div>
 
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[#F4F3EE] border-2 border-slate-950">
+          <div className="flex items-center justify-between p-3 rounded-xl bg-[#EBF1FF] border-2 border-slate-950">
             <div className="flex items-center gap-2.5 min-w-0">
               <Mail className="w-4 h-4 text-slate-950 shrink-0" />
               <div className="min-w-0">
@@ -357,7 +357,7 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
         </div>
 
         {/* Send Firebase Reset Link */}
-        <div className="p-4 rounded-xl bg-[#F4F3EE] border-2 border-slate-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-4 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-0.5 min-w-0">
             <span className="text-xs font-black text-slate-950 block">Reset Sandi via Email Firebase</span>
             <span className="text-[11px] font-semibold text-slate-700 block truncate">
@@ -386,7 +386,7 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
         {hasPasswordProvider && (
           <form
             onSubmit={handleChangePassword}
-            className="p-4 rounded-xl bg-[#FFFDF5] border-2 border-slate-950 space-y-3"
+            className="p-4 rounded-xl bg-[#F0F4FF] border-2 border-slate-950 space-y-3"
           >
             <div className="text-xs font-black uppercase text-slate-950">Ubah Kata Sandi Langsung</div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">

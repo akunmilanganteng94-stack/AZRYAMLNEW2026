@@ -27,7 +27,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
   }
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-slate-950">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#F0F4FF] border-t-2 border-slate-950">
       <div className={`grid ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} items-center h-16 max-w-md mx-auto px-1.5 gap-1`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
