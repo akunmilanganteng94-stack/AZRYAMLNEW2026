@@ -8,9 +8,11 @@ import {
   sendPasswordResetEmail, 
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  updateProfile,
   db,
   doc,
   setDoc,
+  getDoc,
   onSnapshot,
   updateDoc,
   FirebaseUser
@@ -30,7 +32,7 @@ interface AuthContextType {
   refreshUserProfile: () => Promise<void>;
   refreshSettings: () => Promise<void>;
   updateBalanceLocally: (newBalance: number) => void;
-  changeUserRole: (uid: string, role: 'user' | 'admin') => Promise<void>;
+  changeUserRole: (uid: string, role: 'user' | 'admin', userData?: UserProfile) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -41,21 +43,60 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState<boolean>(true);
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
 
-  // Sync user profile with server and Firestore
+  // Sync user profile with Firestore (source of truth) and backend server
   const syncUserWithServer = async (user: { uid: string; email: string | null; displayName: string | null; photoURL: string | null }) => {
     try {
+      const normalizedEmail = (user.email || `${user.uid}@am-premium.local`).toLowerCase().trim();
+      const isOwner = normalizedEmail === 'apriliansyahazril10@gmail.com';
+
+      let fsBalance: number | undefined;
+      let fsRole: 'user' | 'admin' | undefined = isOwner ? 'admin' : undefined;
+      let fsStatus: 'active' | 'banned' | undefined;
+      let fsName: string | undefined;
+      let fsExists = false;
+
+      // 1. Read existing user data from Firestore first so admin edits in Firebase are preserved
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        const existingSnap = await getDoc(userDocRef);
+        if (existingSnap.exists()) {
+          fsExists = true;
+          const fsData = existingSnap.data();
+          if (typeof fsData.balance === 'number') fsBalance = fsData.balance;
+          if (fsData.role === 'user' || fsData.role === 'admin') {
+            fsRole = isOwner ? 'admin' : fsData.role;
+          }
+          if (fsData.status === 'active' || fsData.status === 'banned') {
+            fsStatus = fsData.status;
+          }
+          if (typeof fsData.name === 'string' && fsData.name.trim()) {
+            fsName = fsData.name;
+          }
+        }
+      } catch {
+        // ignore offline firestore read
+      }
+
+      // 2. Sync with backend server using Firestore values
       const res = await fetch('/api/user/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           uid: user.uid,
-          email: user.email || `${user.uid}@am-premium.local`,
-          name: user.displayName || user.email?.split('@')[0] || 'Member AM',
-          photoURL: user.photoURL || ''
+          email: normalizedEmail,
+          name: fsName || user.displayName || normalizedEmail.split('@')[0] || 'Member AM',
+          photoURL: user.photoURL || '',
+          balance: fsBalance,
+          role: fsRole,
+          status: fsStatus
         })
       });
+
       if (res.ok) {
         const data: UserProfile = await res.json();
+        if (isOwner && data.role !== 'admin') {
+          data.role = 'admin';
+        }
         setUserProfile(data);
         localStorage.setItem('am_active_session', JSON.stringify({
           uid: data.uid,
@@ -64,23 +105,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           photoURL: data.photoURL || ''
         }));
 
-        // Mirror to Firestore so role can be modified in Firestore Console
+        // 3. Ensure Firestore document exists and stays synced without clobbering balance
         try {
           const userDocRef = doc(db, 'users', data.uid);
-          setDoc(userDocRef, {
-            uid: data.uid,
-            email: data.email,
-            name: data.name,
-            role: data.role,
-            balance: data.balance,
-            status: data.status,
-            createdAt: data.createdAt,
-            updatedAt: new Date().toISOString()
-          }, { merge: true }).catch((err) => {
-            console.warn('Firestore write warning:', err);
-          });
+          if (fsExists) {
+            await setDoc(userDocRef, {
+              uid: data.uid,
+              email: data.email,
+              name: data.name,
+              role: data.role,
+              status: data.status,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+          } else {
+            await setDoc(userDocRef, {
+              uid: data.uid,
+              email: data.email,
+              name: data.name,
+              role: data.role,
+              balance: data.balance,
+              status: data.status,
+              createdAt: data.createdAt,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+          }
         } catch (e) {
-          // ignore offline firestore
+          // ignore offline firestore write
         }
       }
     } catch (err) {
@@ -88,14 +138,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Refresh profile from server
+  // Refresh profile from Firestore and server
   const refreshUserProfile = async () => {
     if (!userProfile?.uid) return;
     try {
+      let fsData: any = null;
+      try {
+        const snap = await getDoc(doc(db, 'users', userProfile.uid));
+        if (snap.exists()) fsData = snap.data();
+      } catch {
+        // ignore
+      }
+
       const res = await fetch(`/api/user/${userProfile.uid}`);
       if (res.ok) {
         const data: UserProfile = await res.json();
+        if (fsData) {
+          if (typeof fsData.balance === 'number') data.balance = fsData.balance;
+          if (fsData.role === 'user' || fsData.role === 'admin') data.role = fsData.role;
+          if (fsData.status === 'active' || fsData.status === 'banned') data.status = fsData.status;
+        }
         setUserProfile(data);
+      } else if (fsData) {
+        setUserProfile(prev => prev ? {
+          ...prev,
+          balance: typeof fsData.balance === 'number' ? fsData.balance : prev.balance,
+          role: fsData.role || prev.role,
+          status: fsData.status || prev.status
+        } : null);
       }
     } catch (err) {
       console.error('Failed to refresh user profile:', err);
@@ -113,8 +183,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           depositOpen: data.depositOpen ?? true,
           maintenanceMode: data.maintenanceMode ?? false,
           apiConfiguration: prev?.apiConfiguration || {
-            bulkApiUrl: 'https://am.dapjisync.my.id/api/send',
+            bulkApiUrl: 'https://am.dapjisync.my.id/api/bulk',
             bulkApiKey: '',
+            sendApiUrl: 'https://am.dapjisync.my.id/api/send',
+            sendApiKey: '',
             verifApiUrl: 'https://am.dapjisync.my.id/api/verif',
             verifApiKey: ''
           }
@@ -175,58 +247,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithEmail = async (email: string, pass: string) => {
-    // Call server login endpoint for guaranteed, rock-solid login
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), password: pass })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Email atau password tidak sesuai.');
+    try {
+      const userCred = await signInWithEmailAndPassword(auth, email.trim(), pass);
+      if (userCred.user) {
+        await syncUserWithServer({
+          uid: userCred.user.uid,
+          email: userCred.user.email,
+          displayName: userCred.user.displayName,
+          photoURL: userCred.user.photoURL
+        });
+      }
+    } catch (err: any) {
+      console.warn('Firebase login error:', err);
+      if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/wrong-password') {
+        throw new Error('Email atau password salah.');
+      } else if (err?.code === 'auth/user-not-found') {
+        throw new Error('Akun belum terdaftar. Silakan daftar terlebih dahulu.');
+      } else if (err?.code === 'auth/invalid-email') {
+        throw new Error('Format email tidak valid.');
+      } else if (err?.code === 'auth/too-many-requests') {
+        throw new Error('Terlalu banyak percobaan login. Silakan coba lagi nanti.');
+      } else if (err?.code === 'auth/user-disabled') {
+        throw new Error('Akun ini telah dinonaktifkan.');
+      }
+      throw new Error(err?.message || 'Gagal masuk ke akun Firebase.');
     }
-
-    // Save session & set state
-    setUserProfile(data.user);
-    localStorage.setItem('am_active_session', JSON.stringify({
-      uid: data.user.uid,
-      email: data.user.email,
-      displayName: data.user.name,
-      photoURL: data.user.photoURL || ''
-    }));
-
-    // In background, also attempt Firebase login if credentials match
-    signInWithEmailAndPassword(auth, email.trim(), pass).catch(() => {});
   };
 
   const registerWithEmail = async (email: string, pass: string, name: string) => {
-    // Call server register endpoint for guaranteed, rock-solid registration
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email.trim(),
-        password: pass,
-        name: name.trim()
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Gagal melakukan pendaftaran akun.');
+    try {
+      const userCred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+      if (name.trim()) {
+        await updateProfile(userCred.user, { displayName: name.trim() }).catch(() => {});
+      }
+      await syncUserWithServer({
+        uid: userCred.user.uid,
+        email: userCred.user.email,
+        displayName: name.trim() || userCred.user.displayName,
+        photoURL: userCred.user.photoURL
+      });
+    } catch (err: any) {
+      console.warn('Firebase register error:', err);
+      if (err?.code === 'auth/email-already-in-use') {
+        throw new Error('Email ini sudah terdaftar. Silakan langsung login.');
+      } else if (err?.code === 'auth/weak-password') {
+        throw new Error('Password terlalu lemah (minimal 6 karakter).');
+      } else if (err?.code === 'auth/invalid-email') {
+        throw new Error('Format email tidak valid.');
+      }
+      throw new Error(err?.message || 'Gagal melakukan pendaftaran akun.');
     }
-
-    setUserProfile(data.user);
-    localStorage.setItem('am_active_session', JSON.stringify({
-      uid: data.user.uid,
-      email: data.user.email,
-      displayName: data.user.name,
-      photoURL: data.user.photoURL || ''
-    }));
-
-    // In background, also attempt Firebase user creation if possible
-    createUserWithEmailAndPassword(auth, email.trim(), pass).catch(() => {});
   };
 
   const resetPassword = async (email: string) => {
@@ -256,7 +326,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUserProfile(prev => prev ? { ...prev, balance: newBalance } : null);
   };
 
-  // Real-time Firestore document listener to detect role changes in Firestore Console directly
+  // Real-time Firestore document listener to detect role, balance, or status updates directly
   useEffect(() => {
     if (!userProfile?.uid) return;
 
@@ -265,13 +335,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const unsubFirestore = onSnapshot(userDocRef, async (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data.role && data.role !== userProfile.role) {
-            setUserProfile(prev => prev ? { ...prev, role: data.role } : null);
-            // Sync with backend
-            await fetch('/api/admin/users/role', {
+          const hasRoleChange = data.role && data.role !== userProfile.role;
+          const hasBalanceChange = typeof data.balance === 'number' && data.balance !== userProfile.balance;
+          const hasStatusChange = data.status && data.status !== userProfile.status;
+
+          if (hasRoleChange || hasBalanceChange || hasStatusChange) {
+            setUserProfile(prev => prev ? {
+              ...prev,
+              role: data.role || prev.role,
+              balance: typeof data.balance === 'number' ? data.balance : prev.balance,
+              status: data.status || prev.status
+            } : null);
+
+            // Sync updated balance/role/status back to backend server so API orders stay accurate
+            await fetch('/api/user/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ uid: userProfile.uid, role: data.role })
+              body: JSON.stringify({
+                uid: userProfile.uid,
+                email: userProfile.email,
+                name: data.name || userProfile.name,
+                balance: typeof data.balance === 'number' ? data.balance : undefined,
+                role: data.role,
+                status: data.status
+              })
             }).catch(() => {});
           }
         }
@@ -281,16 +368,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // ignore
     }
-  }, [userProfile?.uid, userProfile?.role]);
+  }, [userProfile?.uid, userProfile?.role, userProfile?.balance, userProfile?.status]);
 
   // Change user role both in Firestore and server
-  const changeUserRole = async (targetUid: string, newRole: 'user' | 'admin') => {
+  const changeUserRole = async (targetUid: string, newRole: 'user' | 'admin', userData?: UserProfile) => {
     // 1. Update in Firestore directly
     try {
       const targetDocRef = doc(db, 'users', targetUid);
-      await updateDoc(targetDocRef, { role: newRole }).catch(() => {
-        return setDoc(targetDocRef, { role: newRole }, { merge: true });
-      });
+      await setDoc(targetDocRef, { role: newRole, updatedAt: new Date().toISOString() }, { merge: true });
     } catch (e) {
       console.warn('Firestore role update note:', e);
     }
@@ -299,8 +384,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fetch('/api/admin/users/role', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: targetUid, role: newRole })
-    });
+      body: JSON.stringify({ uid: targetUid, role: newRole, userData })
+    }).catch(() => {});
 
     // 3. Update locally if current user
     if (userProfile?.uid === targetUid) {

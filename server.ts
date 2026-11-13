@@ -18,8 +18,17 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const portArgIdx = process.argv.indexOf('--port');
+const cliPort = portArgIdx !== -1 && process.argv[portArgIdx + 1]
+  ? parseInt(process.argv[portArgIdx + 1], 10)
+  : NaN;
+
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = !isNaN(cliPort)
+  ? cliPort
+  : process.env.NODE_ENV === 'production' && process.env.PORT
+    ? parseInt(process.env.PORT, 10)
+    : 3000;
 
 app.use(express.json());
 
@@ -62,15 +71,22 @@ const defaultProducts: ProductItem[] = [
   }
 ];
 
+const DEFAULT_AM_API_URL_BULK = 'https://am.dapjisync.my.id/api/bulk';
+const DEFAULT_AM_API_URL_SEND = 'https://am.dapjisync.my.id/api/send';
+const DEFAULT_AM_API_URL_VERIF = 'https://am.dapjisync.my.id/api/verif';
+const DEFAULT_AM_API_KEY = 'amk_3981aeb714252c1256545b2664820a27a7461df8';
+
 const defaultSettings: StoreSettings = {
   storeOpen: true,
   depositOpen: true,
   maintenanceMode: false,
   apiConfiguration: {
-    bulkApiUrl: 'https://am.dapjisync.my.id/api/send',
-    bulkApiKey: 'API_KEY_BULK',
-    verifApiUrl: 'https://am.dapjisync.my.id/api/verif',
-    verifApiKey: 'API_KEY_VERIF'
+    bulkApiUrl: DEFAULT_AM_API_URL_BULK,
+    bulkApiKey: process.env.API_KEY_BULK || DEFAULT_AM_API_KEY,
+    sendApiUrl: DEFAULT_AM_API_URL_SEND,
+    sendApiKey: process.env.API_KEY_SEND || DEFAULT_AM_API_KEY,
+    verifApiUrl: DEFAULT_AM_API_URL_VERIF,
+    verifApiKey: process.env.API_KEY_VERIF || DEFAULT_AM_API_KEY
   }
 };
 
@@ -98,14 +114,53 @@ function loadDatabase() {
         }
       });
 
+      const mergedApiConfig = {
+        ...defaultSettings.apiConfiguration,
+        ...(parsed.settings?.apiConfiguration || {})
+      };
+
+      let needsResave = false;
+      if (!mergedApiConfig.bulkApiKey || mergedApiConfig.bulkApiKey === 'API_KEY_BULK') {
+        mergedApiConfig.bulkApiKey = process.env.API_KEY_BULK || DEFAULT_AM_API_KEY;
+        needsResave = true;
+      }
+      if (!mergedApiConfig.sendApiKey || mergedApiConfig.sendApiKey === 'API_KEY_SEND') {
+        mergedApiConfig.sendApiKey = process.env.API_KEY_SEND || DEFAULT_AM_API_KEY;
+        needsResave = true;
+      }
+      if (!mergedApiConfig.verifApiKey || mergedApiConfig.verifApiKey === 'API_KEY_VERIF') {
+        mergedApiConfig.verifApiKey = process.env.API_KEY_VERIF || DEFAULT_AM_API_KEY;
+        needsResave = true;
+      }
+      if (mergedApiConfig.bulkApiUrl !== DEFAULT_AM_API_URL_BULK) {
+        mergedApiConfig.bulkApiUrl = DEFAULT_AM_API_URL_BULK;
+        needsResave = true;
+      }
+      if (mergedApiConfig.sendApiUrl !== DEFAULT_AM_API_URL_SEND) {
+        mergedApiConfig.sendApiUrl = DEFAULT_AM_API_URL_SEND;
+        needsResave = true;
+      }
+      if (mergedApiConfig.verifApiUrl !== DEFAULT_AM_API_URL_VERIF) {
+        mergedApiConfig.verifApiUrl = DEFAULT_AM_API_URL_VERIF;
+        needsResave = true;
+      }
+
       db = {
         users: parsed.users || {},
         products: loadedProducts,
         deposits: parsed.deposits || [],
         orders: parsed.orders || [],
-        settings: parsed.settings ? { ...defaultSettings, ...parsed.settings } : defaultSettings,
+        settings: {
+          ...defaultSettings,
+          ...(parsed.settings || {}),
+          apiConfiguration: mergedApiConfig
+        },
         auditLogs: parsed.auditLogs || []
       };
+
+      if (needsResave) {
+        saveDatabase();
+      }
     } else {
       saveDatabase();
     }
@@ -173,7 +228,7 @@ app.get('/api/products', (req, res) => {
 
 // Sync user on login
 app.post('/api/user/sync', (req, res) => {
-  const { uid, email, name, photoURL } = req.body;
+  const { uid, email, name, photoURL, balance, role, status } = req.body;
   if (!uid || !email) {
     return res.status(400).json({ error: 'Missing UID or email' });
   }
@@ -187,7 +242,6 @@ app.post('/api/user/sync', (req, res) => {
     const existingUid = Object.keys(db.users).find(k => db.users[k].email.toLowerCase() === normalizedEmail);
     if (existingUid) {
       user = db.users[existingUid];
-      // migrate to new uid if needed
       delete db.users[existingUid];
       user.uid = uid;
     } else {
@@ -196,17 +250,26 @@ app.post('/api/user/sync', (req, res) => {
         name: name || email.split('@')[0],
         email: normalizedEmail,
         photoURL: photoURL || '',
-        balance: isOwner ? 100000 : 0, // Gift initial balance to store owner
-        role: isOwner ? 'admin' : 'user',
+        balance: typeof balance === 'number' && balance >= 0 ? Math.floor(balance) : (isOwner ? 100000 : 0),
+        role: isOwner ? 'admin' : (role === 'admin' ? 'admin' : 'user'),
         createdAt: new Date().toISOString(),
-        status: 'active'
+        status: status === 'banned' ? 'banned' : 'active'
       };
     }
   }
 
-  // Update profile details
+  // Update profile details from Firebase / Firestore source of truth
   user.name = name || user.name;
   user.photoURL = photoURL || user.photoURL;
+  if (typeof balance === 'number' && balance >= 0) {
+    user.balance = Math.floor(balance);
+  }
+  if (role === 'user' || role === 'admin') {
+    user.role = role;
+  }
+  if (status === 'active' || status === 'banned') {
+    user.status = status;
+  }
   if (isOwner) {
     user.role = 'admin';
   }
@@ -357,7 +420,7 @@ app.post('/api/deposits', (req, res) => {
     return res.status(403).json({ error: 'Layanan deposit sedang ditutup sementara oleh admin.' });
   }
 
-  const { uid, amount, senderName } = req.body;
+  const { uid, amount, senderName, userEmail, userName } = req.body;
   if (!uid || !amount || !senderName) {
     return res.status(400).json({ error: 'Data deposit tidak lengkap.' });
   }
@@ -367,9 +430,21 @@ app.post('/api/deposits', (req, res) => {
     return res.status(400).json({ error: 'Minimal deposit adalah 500.' });
   }
 
-  const user = db.users[uid];
+  let user = db.users[uid];
   if (!user) {
-    return res.status(404).json({ error: 'User tidak ditemukan.' });
+    const emailNorm = (userEmail || `${uid}@am-premium.local`).toLowerCase().trim();
+    const isOwner = emailNorm === OWNER_EMAIL.toLowerCase();
+    user = {
+      uid,
+      name: userName || emailNorm.split('@')[0],
+      email: emailNorm,
+      photoURL: '',
+      balance: 0,
+      role: isOwner ? 'admin' : 'user',
+      createdAt: new Date().toISOString(),
+      status: 'active'
+    };
+    db.users[uid] = user;
   }
 
   if (user.status === 'banned') {
@@ -404,7 +479,7 @@ app.post('/api/orders/bulk', async (req, res) => {
     return res.status(403).json({ error: 'Toko sedang tutup. Pemesanan sementara tidak dapat dilakukan.' });
   }
 
-  const { uid, quantity } = req.body;
+  const { uid, quantity, userEmail, userName, syncedBalance } = req.body;
   if (!uid || !quantity) {
     return res.status(400).json({ error: 'Parameter pemesanan tidak lengkap.' });
   }
@@ -414,9 +489,22 @@ app.post('/api/orders/bulk', async (req, res) => {
     return res.status(400).json({ error: 'Jumlah produk harus antara 1 sampai 5 akun.' });
   }
 
-  const user = db.users[uid];
+  let user = db.users[uid];
   if (!user) {
-    return res.status(404).json({ error: 'User tidak ditemukan.' });
+    const emailNorm = (userEmail || `${uid}@am-premium.local`).toLowerCase().trim();
+    user = {
+      uid,
+      name: userName || emailNorm.split('@')[0],
+      email: emailNorm,
+      photoURL: '',
+      balance: typeof syncedBalance === 'number' && syncedBalance >= 0 ? Math.floor(syncedBalance) : 0,
+      role: emailNorm === OWNER_EMAIL.toLowerCase() ? 'admin' : 'user',
+      createdAt: new Date().toISOString(),
+      status: 'active'
+    };
+    db.users[uid] = user;
+  } else if (typeof syncedBalance === 'number' && syncedBalance >= 0) {
+    user.balance = Math.floor(syncedBalance);
   }
 
   if (user.status === 'banned') {
@@ -458,61 +546,38 @@ app.post('/api/orders/bulk', async (req, res) => {
   db.orders.unshift(order);
   saveDatabase();
 
-  // Process via external Bulk API
-  const bulkApiUrl = db.settings.apiConfiguration?.bulkApiUrl || 'https://am.dapjisync.my.id/api/send';
-  const bulkApiKey = db.settings.apiConfiguration?.bulkApiKey || 'API_KEY_BULK';
-
-  // Process accounts sequentially (1 request per account)
-  const results: any[] = [];
-  let successfulRequests = 0;
+  // Process via external Bulk API (https://am.dapjisync.my.id/api/bulk)
+  const bulkApiUrl = db.settings.apiConfiguration?.bulkApiUrl || DEFAULT_AM_API_URL_BULK;
+  const bulkApiKey = (db.settings.apiConfiguration?.bulkApiKey && db.settings.apiConfiguration.bulkApiKey !== 'API_KEY_BULK')
+    ? db.settings.apiConfiguration.bulkApiKey
+    : (process.env.API_KEY_BULK || DEFAULT_AM_API_KEY);
 
   try {
-    for (let i = 0; i < qty; i++) {
-      try {
-        const response = await fetch(bulkApiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-apikey': bulkApiKey
-          },
-          body: JSON.stringify({ gmail: user.email || 'bulk@am-premium.local' }),
-          signal: AbortSignal.timeout(15000)
-        });
+    const response = await fetch(bulkApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-apikey': bulkApiKey
+      },
+      body: JSON.stringify({ total: qty, provider: 'akunlama' }),
+      signal: AbortSignal.timeout(30000)
+    });
 
-        const data = await response.json().catch(() => ({ rawStatus: response.status }));
-        results.push({ attempt: i + 1, statusCode: response.status, data });
+    const data = await response.json().catch(() => ({ rawStatus: response.status }));
+    order.apiResponse = data;
+    order.completedAt = new Date().toISOString();
 
-        if (response.ok) {
-          successfulRequests++;
-        }
-      } catch (err: any) {
-        results.push({ attempt: i + 1, error: err.message || 'Connection error' });
-      }
-    }
-
-    // Determine final status
-    if (successfulRequests === qty) {
+    if (response.ok && data.success !== false && data.status !== 'error') {
       order.status = 'Berhasil';
-      order.completedAt = new Date().toISOString();
-      order.apiResponse = { successfulRequests, results };
-    } else if (successfulRequests > 0) {
-      order.status = 'Berhasil';
-      order.completedAt = new Date().toISOString();
-      order.errorNote = `Berhasil ${successfulRequests} dari ${qty} akun.`;
-      order.apiResponse = { successfulRequests, results };
-      // Partial refund for failed accounts
-      const refundAmount = product.price * (qty - successfulRequests);
-      user.balance += refundAmount;
     } else {
       order.status = 'Gagal';
-      order.completedAt = new Date().toISOString();
-      order.errorNote = 'Gagal memproses via server API. Saldo telah dikembalikan secara otomatis.';
-      order.apiResponse = { results };
+      order.errorNote = data.message || data.error || 'Gagal memproses via server API. Saldo telah dikembalikan secara otomatis.';
       // Full refund
       user.balance += totalPrice;
     }
   } catch (err: any) {
     order.status = 'Gagal';
+    order.completedAt = new Date().toISOString();
     order.errorNote = err.message || 'Server error saat mengirim permintaan';
     // Full refund on unexpected failure
     user.balance += totalPrice;
@@ -536,7 +601,7 @@ app.post('/api/orders/verif', async (req, res) => {
     return res.status(403).json({ error: 'Toko sedang tutup. Pemesanan sementara tidak dapat dilakukan.' });
   }
 
-  const { uid, email, link } = req.body;
+  const { uid, email, link, userEmail, userName, syncedBalance } = req.body;
   if (!uid || !email || !link) {
     return res.status(400).json({ error: 'Email dan link verifikasi wajib diisi.' });
   }
@@ -544,9 +609,22 @@ app.post('/api/orders/verif', async (req, res) => {
   const targetEmail = email.trim();
   const targetLink = link.trim();
 
-  const user = db.users[uid];
+  let user = db.users[uid];
   if (!user) {
-    return res.status(404).json({ error: 'User tidak ditemukan.' });
+    const emailNorm = (userEmail || `${uid}@am-premium.local`).toLowerCase().trim();
+    user = {
+      uid,
+      name: userName || emailNorm.split('@')[0],
+      email: emailNorm,
+      photoURL: '',
+      balance: typeof syncedBalance === 'number' && syncedBalance >= 0 ? Math.floor(syncedBalance) : 0,
+      role: emailNorm === OWNER_EMAIL.toLowerCase() ? 'admin' : 'user',
+      createdAt: new Date().toISOString(),
+      status: 'active'
+    };
+    db.users[uid] = user;
+  } else if (typeof syncedBalance === 'number' && syncedBalance >= 0) {
+    user.balance = Math.floor(syncedBalance);
   }
 
   if (user.status === 'banned') {
@@ -589,8 +667,10 @@ app.post('/api/orders/verif', async (req, res) => {
   db.orders.unshift(order);
   saveDatabase();
 
-  const verifApiUrl = db.settings.apiConfiguration?.verifApiUrl || 'https://am.dapjisync.my.id/api/verif';
-  const verifApiKey = db.settings.apiConfiguration?.verifApiKey || 'API_KEY_VERIF';
+  const verifApiUrl = db.settings.apiConfiguration?.verifApiUrl || DEFAULT_AM_API_URL_VERIF;
+  const verifApiKey = (db.settings.apiConfiguration?.verifApiKey && db.settings.apiConfiguration.verifApiKey !== 'API_KEY_VERIF')
+    ? db.settings.apiConfiguration.verifApiKey
+    : (process.env.API_KEY_VERIF || DEFAULT_AM_API_KEY);
 
   try {
     const response = await fetch(verifApiUrl, {
@@ -636,6 +716,50 @@ app.post('/api/orders/verif', async (req, res) => {
       ? 'Verifikasi akun AM berhasil terkonfirmasi!' 
       : `Verifikasi gagal: ${order.errorNote}`
   });
+});
+
+// Send verification link to Gmail via /api/send
+app.post('/api/verif/send-link', async (req, res) => {
+  if (!db.settings.storeOpen) {
+    return res.status(403).json({ error: 'Toko sedang tutup. Pemesanan sementara tidak dapat dilakukan.' });
+  }
+
+  const { gmail } = req.body;
+  if (!gmail || typeof gmail !== 'string' || !gmail.includes('@')) {
+    return res.status(400).json({ error: 'Alamat Gmail tidak valid.' });
+  }
+
+  const sendApiUrl = db.settings.apiConfiguration?.sendApiUrl || DEFAULT_AM_API_URL_SEND;
+  const sendApiKey = (db.settings.apiConfiguration?.sendApiKey && db.settings.apiConfiguration.sendApiKey !== 'API_KEY_SEND')
+    ? db.settings.apiConfiguration.sendApiKey
+    : (process.env.API_KEY_SEND || DEFAULT_AM_API_KEY);
+
+  try {
+    const response = await fetch(sendApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-apikey': sendApiKey
+      },
+      body: JSON.stringify({ gmail: gmail.trim() }),
+      signal: AbortSignal.timeout(15000)
+    });
+
+    const data = await response.json().catch(() => ({ rawStatus: response.status }));
+    if (response.ok && data.success !== false && data.status !== 'error') {
+      return res.json({ success: true, data });
+    }
+
+    return res.status(response.ok ? 400 : response.status).json({
+      success: false,
+      error: data.message || data.error || 'Gagal mengirim link verifikasi ke Gmail.'
+    });
+  } catch (err: any) {
+    return res.status(502).json({
+      success: false,
+      error: err.message || 'Gagal menghubungi server API pengirim link.'
+    });
+  }
 });
 
 /* =========================================================
@@ -717,14 +841,27 @@ app.post('/api/admin/settings', verifyAdmin, (req, res) => {
 
 // Admin Approve / Reject Deposit
 app.post('/api/admin/deposits/action', verifyAdmin, (req, res) => {
-  const { depositId, action, adminNote } = req.body;
+  const { depositId, action, adminNote, depositData } = req.body;
   const adminEmail = req.headers['x-admin-email'] as string || 'Admin';
 
   if (!depositId || !['approve', 'reject'].includes(action)) {
     return res.status(400).json({ error: 'Parameter persetujuan tidak valid.' });
   }
 
-  const deposit = db.deposits.find(d => d.id === depositId);
+  let deposit = db.deposits.find(d => d.id === depositId);
+  if (!deposit && depositData && depositData.uid && depositData.amount) {
+    deposit = {
+      id: depositId,
+      uid: depositData.uid,
+      userEmail: depositData.userEmail || `${depositData.uid}@am-premium.local`,
+      amount: Math.floor(Number(depositData.amount)),
+      senderName: depositData.senderName || 'Pengguna',
+      status: depositData.status || 'Menunggu Konfirmasi Admin',
+      createdAt: depositData.createdAt || new Date().toISOString()
+    };
+    db.deposits.unshift(deposit);
+  }
+
   if (!deposit) {
     return res.status(404).json({ error: 'Permintaan deposit tidak ditemukan.' });
   }
@@ -734,9 +871,20 @@ app.post('/api/admin/deposits/action', verifyAdmin, (req, res) => {
     return res.status(400).json({ error: `Deposit ini telah berstatus '${deposit.status}', tidak dapat diproses ulang.` });
   }
 
-  const user = db.users[deposit.uid];
-  if (!user && action === 'approve') {
-    return res.status(404).json({ error: 'Pengguna akun deposit tidak ditemukan.' });
+  let user = db.users[deposit.uid];
+  if (!user) {
+    const emailNorm = (deposit.userEmail || `${deposit.uid}@am-premium.local`).toLowerCase().trim();
+    user = {
+      uid: deposit.uid,
+      name: deposit.senderName || emailNorm.split('@')[0],
+      email: emailNorm,
+      photoURL: '',
+      balance: 0,
+      role: emailNorm === OWNER_EMAIL.toLowerCase() ? 'admin' : 'user',
+      createdAt: new Date().toISOString(),
+      status: 'active'
+    };
+    db.users[deposit.uid] = user;
   }
 
   if (action === 'approve') {
@@ -775,20 +923,35 @@ app.post('/api/admin/deposits/action', verifyAdmin, (req, res) => {
   res.json({
     success: true,
     message: action === 'approve' ? 'Deposit berhasil disetujui & saldo ditambahkan.' : 'Deposit berhasil ditolak.',
-    deposit
+    deposit,
+    newBalance: user.balance
   });
 });
 
 // Admin Adjust User Balance
 app.post('/api/admin/users/balance', verifyAdmin, (req, res) => {
-  const { uid, newBalance, reason } = req.body;
+  const { uid, newBalance, reason, userData } = req.body;
   const adminEmail = req.headers['x-admin-email'] as string || 'Admin';
 
-  if (!uid || typeof newBalance !== 'number' || newBalance < 0) {
-    return res.status(400).json({ error: 'Nominal saldo tidak valid (harus angka positif).' });
+  if (!uid || typeof newBalance !== 'number' || isNaN(newBalance) || newBalance < 0) {
+    return res.status(400).json({ error: 'Nominal saldo tidak valid (harus angka 0 atau positif).' });
   }
 
-  const user = db.users[uid];
+  let user = db.users[uid];
+  if (!user && userData) {
+    user = {
+      uid,
+      name: userData.name || userData.email?.split('@')[0] || 'Member AM',
+      email: (userData.email || `${uid}@am-premium.local`).toLowerCase().trim(),
+      photoURL: userData.photoURL || '',
+      balance: typeof userData.balance === 'number' ? userData.balance : 0,
+      role: userData.role === 'admin' ? 'admin' : 'user',
+      createdAt: userData.createdAt || new Date().toISOString(),
+      status: userData.status === 'banned' ? 'banned' : 'active'
+    };
+    db.users[uid] = user;
+  }
+
   if (!user) {
     return res.status(404).json({ error: 'Pengguna tidak ditemukan.' });
   }
@@ -812,14 +975,28 @@ app.post('/api/admin/users/balance', verifyAdmin, (req, res) => {
 
 // Admin Update User Status (active / banned)
 app.post('/api/admin/users/status', verifyAdmin, (req, res) => {
-  const { uid, status } = req.body;
+  const { uid, status, userData } = req.body;
   const adminEmail = req.headers['x-admin-email'] as string || 'Admin';
 
   if (!uid || !['active', 'banned'].includes(status)) {
     return res.status(400).json({ error: 'Status tidak valid.' });
   }
 
-  const user = db.users[uid];
+  let user = db.users[uid];
+  if (!user && userData) {
+    user = {
+      uid,
+      name: userData.name || userData.email?.split('@')[0] || 'Member AM',
+      email: (userData.email || `${uid}@am-premium.local`).toLowerCase().trim(),
+      photoURL: userData.photoURL || '',
+      balance: typeof userData.balance === 'number' ? userData.balance : 0,
+      role: userData.role === 'admin' ? 'admin' : 'user',
+      createdAt: userData.createdAt || new Date().toISOString(),
+      status: 'active'
+    };
+    db.users[uid] = user;
+  }
+
   if (!user) {
     return res.status(404).json({ error: 'Pengguna tidak ditemukan.' });
   }
@@ -842,14 +1019,28 @@ app.post('/api/admin/users/status', verifyAdmin, (req, res) => {
 
 // Admin / Firestore User Role Update (changes role to user or admin)
 app.post('/api/admin/users/role', (req, res) => {
-  const { uid, role } = req.body;
+  const { uid, role, userData } = req.body;
   const adminEmail = req.headers['x-admin-email'] as string || 'Admin';
 
   if (!uid || !['user', 'admin'].includes(role)) {
     return res.status(400).json({ error: 'Role tidak valid (harus user atau admin).' });
   }
 
-  const user = db.users[uid];
+  let user = db.users[uid];
+  if (!user && userData) {
+    user = {
+      uid,
+      name: userData.name || userData.email?.split('@')[0] || 'Member AM',
+      email: (userData.email || `${uid}@am-premium.local`).toLowerCase().trim(),
+      photoURL: userData.photoURL || '',
+      balance: typeof userData.balance === 'number' ? userData.balance : 0,
+      role: role,
+      createdAt: userData.createdAt || new Date().toISOString(),
+      status: userData.status === 'banned' ? 'banned' : 'active'
+    };
+    db.users[uid] = user;
+  }
+
   if (!user) {
     return res.status(404).json({ error: 'Pengguna tidak ditemukan.' });
   }
@@ -901,21 +1092,36 @@ app.post('/api/admin/products', verifyAdmin, (req, res) => {
 // Admin Test API Connection
 app.post('/api/admin/test-api', verifyAdmin, async (req, res) => {
   const { type, url, apiKey } = req.body;
-  if (!url) {
-    return res.status(400).json({ error: 'URL API wajib diisi.' });
-  }
+  const defaultUrl =
+    type === 'bulk'
+      ? DEFAULT_AM_API_URL_BULK
+      : type === 'send'
+        ? DEFAULT_AM_API_URL_SEND
+        : DEFAULT_AM_API_URL_VERIF;
+  const defaultKey =
+    (type === 'bulk'
+      ? db.settings.apiConfiguration?.bulkApiKey
+      : type === 'send'
+        ? db.settings.apiConfiguration?.sendApiKey
+        : db.settings.apiConfiguration?.verifApiKey) || DEFAULT_AM_API_KEY;
+
+  const targetUrl = url || defaultUrl;
+  const targetKey = apiKey || defaultKey;
 
   try {
-    const testBody = type === 'bulk' 
-      ? { gmail: 'ping-test@example.com' } 
-      : { gmail: 'ping-test@example.com', link: 'https://test-link.com' };
+    const testBody =
+      type === 'bulk'
+        ? { total: 1, provider: 'akunlama' }
+        : type === 'send'
+          ? { gmail: 'user@gmail.com' }
+          : { gmail: 'user@gmail.com', link: 'https://alight-creative.firebaseapp.com/__/auth/links?link=...' };
 
     const startTime = Date.now();
-    const response = await fetch(url, {
+    const response = await fetch(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-apikey': apiKey || ''
+        'x-apikey': targetKey
       },
       body: JSON.stringify(testBody),
       signal: AbortSignal.timeout(10000)
@@ -938,13 +1144,219 @@ app.post('/api/admin/test-api', verifyAdmin, async (req, res) => {
   }
 });
 
+// Admin Simulate Incoming QRIS Deposit (so admin can test approve/reject immediately)
+app.post('/api/admin/deposits/simulate', verifyAdmin, (req, res) => {
+  const { amount = 5000, senderName = 'Pembeli QRIS Test', email = 'member.test@gmail.com' } = req.body;
+  const numAmount = parseInt(amount, 10) || 5000;
+  
+  // Find or create test user
+  let testUser = Object.values(db.users).find(u => u.email === email);
+  if (!testUser) {
+    const testUid = 'usr_sim_' + Date.now().toString(36);
+    testUser = {
+      uid: testUid,
+      email,
+      name: senderName,
+      role: 'user',
+      balance: 0,
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+    db.users[testUid] = testUser;
+  }
+
+  const simDeposit: DepositTransaction = {
+    id: 'DEP-SIM-' + Date.now().toString(36).toUpperCase(),
+    uid: testUser.uid,
+    userEmail: testUser.email,
+    amount: numAmount,
+    senderName,
+    status: 'Menunggu Konfirmasi Admin',
+    createdAt: new Date().toISOString()
+  };
+
+  db.deposits.unshift(simDeposit);
+  saveDatabase();
+
+  res.json({ success: true, deposit: simDeposit, message: 'Simulasi deposit berhasil dibuat!' });
+});
+
+// Admin Create New User manually
+app.post('/api/admin/users/create', verifyAdmin, (req, res) => {
+  const { email, name, role = 'user', initialBalance = 0 } = req.body;
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'Email pengguna tidak valid.' });
+  }
+
+  const existing = Object.values(db.users).find(u => u.email.toLowerCase() === email.toLowerCase());
+  if (existing) {
+    return res.status(400).json({ error: 'Pengguna dengan email ini sudah terdaftar.' });
+  }
+
+  const newUid = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+  const newUser: UserProfile = {
+    uid: newUid,
+    email: email.trim(),
+    name: (name || email.split('@')[0]).trim(),
+    role: role === 'admin' ? 'admin' : 'user',
+    balance: Math.max(0, parseInt(initialBalance, 10) || 0),
+    status: 'active',
+    createdAt: new Date().toISOString()
+  };
+
+  db.users[newUid] = newUser;
+  
+  const adminEmail = req.headers['x-admin-email'] as string || 'Admin';
+  db.auditLogs.unshift({
+    id: 'AUD-' + Date.now().toString(36),
+    adminEmail,
+    action: 'CREATE_USER',
+    targetUser: newUser.email,
+    details: `Admin membuat user baru: ${newUser.name} (${newUser.email}), Saldo: ${newUser.balance.toLocaleString()}`,
+    timestamp: new Date().toISOString()
+  });
+
+  saveDatabase();
+  res.json({ success: true, user: newUser, message: 'User berhasil dibuat!' });
+});
+
+// Admin Update Order Status manually
+app.post('/api/admin/orders/status', verifyAdmin, (req, res) => {
+  const { orderId, status } = req.body;
+  if (!orderId || !['Berhasil', 'Gagal', 'Sedang diproses'].includes(status)) {
+    return res.status(400).json({ error: 'Parameter status order tidak valid.' });
+  }
+
+  const order = db.orders.find(o => o.id === orderId);
+  if (!order) {
+    return res.status(404).json({ error: 'Order tidak ditemukan.' });
+  }
+
+  order.status = status;
+  if (status === 'Berhasil' || status === 'Gagal') {
+    order.completedAt = new Date().toISOString();
+  }
+
+  const adminEmail = req.headers['x-admin-email'] as string || 'Admin';
+  db.auditLogs.unshift({
+    id: 'AUD-' + Date.now().toString(36),
+    adminEmail,
+    action: 'UPDATE_ORDER_STATUS',
+    details: `Ubah status order ${order.id} menjadi ${status}`,
+    timestamp: new Date().toISOString()
+  });
+
+  saveDatabase();
+  res.json({ success: true, order, message: `Status order berhasil diubah menjadi ${status}!` });
+});
+
+// Admin Seed Sample Realistic Data (so dashboard & tables are full of rich data)
+app.post('/api/admin/seed-sample-data', verifyAdmin, (req, res) => {
+  const sampleUsers = [
+    { uid: 'usr_faisal_01', email: 'faisal.motion@gmail.com', name: 'Faisal Editor AM', balance: 1400, role: 'user', status: 'active' },
+    { uid: 'usr_dika_02', email: 'dika.alight@gmail.com', name: 'Dika Preset Store', balance: 2600, role: 'user', status: 'active' },
+    { uid: 'usr_sarah_03', email: 'sarah.creatives@gmail.com', name: 'Sarah FX', balance: 300, role: 'user', status: 'active' },
+    { uid: 'usr_rendy_04', email: 'rendy.visual@gmail.com', name: 'Rendy Visuals', balance: 0, role: 'user', status: 'active' }
+  ];
+
+  sampleUsers.forEach(u => {
+    if (!db.users[u.uid]) {
+      db.users[u.uid] = {
+        uid: u.uid,
+        email: u.email,
+        name: u.name,
+        balance: u.balance,
+        role: u.role as 'user',
+        status: u.status as 'active',
+        createdAt: new Date(Date.now() - 86400000 * 3).toISOString()
+      };
+    }
+  });
+
+  // Sample pending and successful deposits
+  const sampleDeposits: DepositTransaction[] = [
+    {
+      id: 'DEP-QRIS-9921',
+      uid: 'usr_faisal_01',
+      userEmail: 'faisal.motion@gmail.com',
+      amount: 5000,
+      senderName: 'Faisal Ramadhan',
+      status: 'Menunggu Konfirmasi Admin',
+      createdAt: new Date(Date.now() - 1000 * 60 * 12).toISOString()
+    },
+    {
+      id: 'DEP-QRIS-8812',
+      uid: 'usr_dika_02',
+      userEmail: 'dika.alight@gmail.com',
+      amount: 10000,
+      senderName: 'Andika Pratama',
+      status: 'Berhasil',
+      createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
+      approvedAt: new Date(Date.now() - 1000 * 60 * 175).toISOString(),
+      adminNote: 'QRIS Zril Store terkonfirmasi otomatis.'
+    }
+  ];
+
+  sampleDeposits.forEach(d => {
+    if (!db.deposits.some(existing => existing.id === d.id)) {
+      db.deposits.unshift(d);
+    }
+  });
+
+  // Sample orders
+  const sampleOrders: OrderTransaction[] = [
+    {
+      id: 'ORD-BULK-9102-112',
+      uid: 'usr_dika_02',
+      userEmail: 'dika.alight@gmail.com',
+      productId: 'bulk-am',
+      productName: 'Bulk AM',
+      email: '3 Akun Bulk AM',
+      quantity: 3,
+      totalPrice: 600,
+      status: 'Berhasil',
+      createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+      completedAt: new Date(Date.now() - 1000 * 60 * 58).toISOString()
+    },
+    {
+      id: 'ORD-VERIF-7721-344',
+      uid: 'usr_sarah_03',
+      userEmail: 'sarah.creatives@gmail.com',
+      productId: 'am-verif',
+      productName: 'AM Verif',
+      email: 'sarah.creatives@gmail.com',
+      quantity: 1,
+      totalPrice: 300,
+      status: 'Berhasil',
+      createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+      completedAt: new Date(Date.now() - 1000 * 60 * 118).toISOString()
+    }
+  ];
+
+  sampleOrders.forEach(o => {
+    if (!db.orders.some(existing => existing.id === o.id)) {
+      db.orders.unshift(o);
+    }
+  });
+
+  saveDatabase();
+  res.json({ success: true, message: 'Data contoh berhasil ditambahkan ke sistem!' });
+});
+
+// Admin Clear Audit Logs
+app.post('/api/admin/audit-logs/clear', verifyAdmin, (req, res) => {
+  db.auditLogs = [];
+  saveDatabase();
+  res.json({ success: true, message: 'Audit log telah dibersihkan.' });
+});
+
 // Admin Get Audit Logs
 app.get('/api/admin/audit-logs', verifyAdmin, (req, res) => {
   res.json(db.auditLogs.slice(0, 50));
 });
 
 /* =========================================================
-   VITE DEV MIDDLEWARE / STATIC FILES
+   VITE DEV MIDDLEWARE / STATIC FILES / VERCEL EXPORT
    ========================================================= */
 
 async function startServer() {
@@ -972,4 +1384,10 @@ async function startServer() {
   });
 }
 
-startServer();
+// Start server if not running inside Vercel serverless function
+if (process.env.VERCEL !== '1') {
+  startServer();
+}
+
+export { app };
+export default app;

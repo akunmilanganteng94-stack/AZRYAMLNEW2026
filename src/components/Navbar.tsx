@@ -70,9 +70,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAuth, activeTab, setActive
               </div>
             </button>
 
-            {/* User Profile / Admin Quick Switch */}
+            {/* User Profile */}
             <button
-              onClick={() => setActiveTab(userProfile.role === 'admin' && activeTab !== 'admin' ? 'admin' : 'account')}
+              onClick={() => setActiveTab('account')}
               className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-all text-xs"
             >
               <div className="w-6 h-6 rounded-full bg-blue-600/30 text-blue-300 border border-blue-500/30 flex items-center justify-center font-bold text-[11px]">

@@ -31,17 +31,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { userProfile, logout } = useAuth();
 
+  const isAdmin = userProfile?.role === 'admin' || userProfile?.email?.toLowerCase().trim() === 'apriliansyahazril10@gmail.com';
+
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'menu', label: 'Order Layanan', icon: ShoppingBag },
     { id: 'history', label: 'Riwayat Transaksi', icon: Clock },
     { id: 'deposit', label: 'Deposit Saldo', icon: Wallet },
     { id: 'account', label: 'Akun Saya', icon: User },
+    ...(isAdmin ? [{ id: 'admin', label: 'Panel Admin', icon: ShieldCheck }] : []),
   ];
-
-  if (userProfile?.role === 'admin') {
-    navItems.push({ id: 'admin', label: 'Panel Admin', icon: ShieldCheck });
-  }
 
   return (
     <aside

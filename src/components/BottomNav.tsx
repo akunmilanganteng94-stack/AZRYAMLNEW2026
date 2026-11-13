@@ -10,6 +10,8 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
   const { userProfile } = useAuth();
 
+  const isAdmin = userProfile?.role === 'admin' || userProfile?.email?.toLowerCase().trim() === 'apriliansyahazril10@gmail.com';
+
   const tabs = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'menu', label: 'Menu', icon: ShoppingBag },
@@ -18,9 +20,13 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
     { id: 'account', label: 'Akun', icon: User },
   ];
 
+  if (isAdmin) {
+    tabs.push({ id: 'admin', label: 'Admin', icon: ShieldCheck });
+  }
+
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#070b18]/95 backdrop-blur-2xl border-t border-blue-500/15 shadow-2xl shadow-black">
-      <div className="grid grid-cols-5 items-center h-16 max-w-md mx-auto px-2">
+      <div className={`grid ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} items-center h-16 max-w-md mx-auto px-2`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useToast } from './Toast.tsx';
 import { DepositTransaction } from '../types/index.ts';
+import { db, doc, setDoc } from '../lib/firebase.ts';
 import { 
   Wallet, 
   QrCode, 
@@ -14,7 +15,8 @@ import {
   User,
   Info,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  X
 } from 'lucide-react';
 
 interface DepositViewProps {
@@ -28,7 +30,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
 
   const [amount, setAmount] = useState<string>('1000');
   const [senderName, setSenderName] = useState<string>('');
-  const [step, setStep] = useState<'input' | 'payment' | 'submitted'>('input');
+  const [step, setStep] = useState<'input' | 'payment'>('input');
   const [loading, setLoading] = useState<boolean>(false);
   const [submittedDeposit, setSubmittedDeposit] = useState<DepositTransaction | null>(null);
 
@@ -71,6 +73,8 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           uid: userProfile.uid,
+          userEmail: userProfile.email,
+          userName: userProfile.name,
           amount: numericAmount,
           senderName: senderName.trim()
         })
@@ -83,9 +87,21 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
         return;
       }
 
-      setSubmittedDeposit(data.deposit);
-      setStep('submitted');
-      showToast('Konfirmasi pembayaran telah dikirim ke Admin. Menunggu persetujuan.', 'success');
+      const depositRecord: DepositTransaction = data.deposit;
+
+      // Sinkronkan ke Firestore secara real-time agar langsung tampil di Panel Admin
+      try {
+        await setDoc(doc(db, 'deposits', depositRecord.id), depositRecord, { merge: true });
+      } catch (fsErr) {
+        console.warn('Firestore deposit sync warning:', fsErr);
+      }
+
+      // Hilangkan QRIS dan kembalikan tampilan langsung ke formulir semula
+      setSubmittedDeposit(depositRecord);
+      setStep('input');
+      setAmount('1000');
+      setSenderName('');
+      showToast('Konfirmasi pembayaran telah dikirim ke Panel Admin untuk ditinjau.', 'success');
     } catch (err: any) {
       console.error(err);
       showToast('Terjadi kesalahan jaringan.', 'error');
@@ -130,6 +146,40 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
         <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
           <span>Layanan deposit sedang ditutup sementara oleh admin. Silakan coba kembali nanti.</span>
+        </div>
+      )}
+
+      {/* Recent Submitted Notice (on initial screen, no QR shown) */}
+      {step === 'input' && submittedDeposit && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+            <div className="text-xs space-y-0.5">
+              <div className="font-bold text-amber-300">
+                Konfirmasi Deposit Terkirim ke Admin ({submittedDeposit.id})
+              </div>
+              <p className="text-slate-300 text-[11px]">
+                Nominal <span className="font-bold text-white">{submittedDeposit.amount.toLocaleString()}</span> a.n. <span className="font-semibold text-white">{submittedDeposit.senderName}</span> sedang menunggu konfirmasi/persetujuan admin.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[11px] transition-all"
+            >
+              Cek Riwayat
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubmittedDeposit(null)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
+              title="Tutup notifikasi"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -347,50 +397,6 @@ export const DepositView: React.FC<DepositViewProps> = ({ setActiveTab, onOpenAu
                   <span>Sudah Bayar</span>
                 </>
               )}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 3: SUBMITTED STATE */}
-      {step === 'submitted' && submittedDeposit && (
-        <div className="bg-[#080d1e] border border-blue-500/30 rounded-3xl p-6 sm:p-8 text-center space-y-6 shadow-2xl">
-          <div className="w-16 h-16 mx-auto rounded-3xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-lg shadow-amber-500/10">
-            <Clock className="w-8 h-8 animate-pulse" />
-          </div>
-
-          <div className="space-y-2 max-w-md mx-auto">
-            <h2 className="text-xl font-bold font-display text-white">
-              Konfirmasi Terkirim!
-            </h2>
-            <div className="inline-block px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold">
-              Status: Menunggu Konfirmasi Admin
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed pt-2">
-              Permintaan deposit Anda dengan ID <span className="font-mono text-cyan-300 font-bold">{submittedDeposit.id}</span> sebesar <span className="font-bold text-white">{submittedDeposit.amount.toLocaleString()}</span> telah masuk ke sistem.
-            </p>
-            <p className="text-[11px] text-slate-400">
-              Admin akan memeriksa mutasi bank dan menyetujui penambahan saldo akun Anda. Anda dapat memantau statusnya di menu Riwayat.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-4 border-t border-slate-800">
-            <button
-              onClick={() => setActiveTab('history')}
-              className="py-2.5 px-5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-md shadow-blue-600/30 transition-all"
-            >
-              Cek Riwayat Deposit
-            </button>
-            <button
-              onClick={() => {
-                setStep('input');
-                setAmount('1000');
-                setSenderName('');
-                setSubmittedDeposit(null);
-              }}
-              className="py-2.5 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-semibold text-xs transition-all"
-            >
-              Deposit Lagi
             </button>
           </div>
         </div>

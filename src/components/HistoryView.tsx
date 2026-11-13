@@ -1,18 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { useToast } from './Toast.tsx';
 import { OrderTransaction, DepositTransaction } from '../types/index.ts';
+import { db, collection, query, where, onSnapshot } from '../lib/firebase.ts';
+import {
+  extractBulkAccounts,
+  extractVerifMessage,
+  formatValidUntil
+} from '../utils/orderFormatting.ts';
 import { 
   Clock, 
   ShoppingBag, 
   Wallet, 
   Search, 
-  Filter, 
   RefreshCw, 
-  CheckCircle2, 
-  AlertCircle, 
   ExternalLink,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Copy,
+  Check,
+  Mail,
+  MessageSquareText
 } from 'lucide-react';
 
 interface HistoryViewProps {
@@ -22,6 +30,7 @@ interface HistoryViewProps {
 
 export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveTab }) => {
   const { userProfile } = useAuth();
+  const { showToast } = useToast();
   const [activeCategory, setActiveCategory] = useState<'orders' | 'deposits'>('orders');
   const [orders, setOrders] = useState<OrderTransaction[]>([]);
   const [deposits, setDeposits] = useState<DepositTransaction[]>([]);
@@ -29,6 +38,51 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const [apiOrders, setApiOrders] = useState<OrderTransaction[]>([]);
+  const [fsOrders, setFsOrders] = useState<OrderTransaction[]>([]);
+  const [apiDeposits, setApiDeposits] = useState<DepositTransaction[]>([]);
+  const [fsDeposits, setFsDeposits] = useState<DepositTransaction[]>([]);
+
+  const handleCopy = (text: string, key: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!text) return;
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedKey(key);
+    showToast('Berhasil disalin!', 'success');
+    setTimeout(() => setCopiedKey(prev => (prev === key ? null : prev)), 2000);
+  };
+
+  useEffect(() => {
+    const map = new Map<string, OrderTransaction>();
+    [...apiOrders, ...fsOrders].forEach((ord) => {
+      if (!ord || !ord.id) return;
+      const existing = map.get(ord.id);
+      if (!existing || (!existing.apiResponse && ord.apiResponse)) {
+        map.set(ord.id, ord);
+      }
+    });
+    setOrders(
+      Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    );
+  }, [apiOrders, fsOrders]);
+
+  useEffect(() => {
+    const map = new Map<string, DepositTransaction>();
+    [...apiDeposits, ...fsDeposits].forEach((dep) => {
+      if (!dep || !dep.id) return;
+      const existing = map.get(dep.id);
+      if (!existing) {
+        map.set(dep.id, dep);
+      } else if (existing.status === 'Menunggu Konfirmasi Admin' && dep.status !== 'Menunggu Konfirmasi Admin') {
+        map.set(dep.id, dep);
+      }
+    });
+    setDeposits(
+      Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    );
+  }, [apiDeposits, fsDeposits]);
 
   const fetchTransactions = async () => {
     if (!userProfile?.uid) {
@@ -40,8 +94,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
       const res = await fetch(`/api/transactions/${userProfile.uid}`);
       if (res.ok) {
         const data = await res.json();
-        setOrders(data.orders || []);
-        setDeposits(data.deposits || []);
+        setApiOrders(data.orders || []);
+        setApiDeposits(data.deposits || []);
       }
     } catch (err) {
       console.error(err);
@@ -52,6 +106,40 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
 
   useEffect(() => {
     fetchTransactions();
+    if (!userProfile?.uid) return;
+
+    const depQuery = query(collection(db, 'deposits'), where('uid', '==', userProfile.uid));
+    const unsubDeps = onSnapshot(
+      depQuery,
+      (snapshot) => {
+        const list: DepositTransaction[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as DepositTransaction;
+          if (data && data.id) list.push(data);
+        });
+        setFsDeposits(list);
+      },
+      () => {}
+    );
+
+    const ordQuery = query(collection(db, 'orders'), where('uid', '==', userProfile.uid));
+    const unsubOrds = onSnapshot(
+      ordQuery,
+      (snapshot) => {
+        const list: OrderTransaction[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as OrderTransaction;
+          if (data && data.id) list.push(data);
+        });
+        setFsOrders(list);
+      },
+      () => {}
+    );
+
+    return () => {
+      unsubDeps();
+      unsubOrds();
+    };
   }, [userProfile?.uid]);
 
   const toggleExpand = (id: string) => {
@@ -101,13 +189,18 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
   return (
     <div className="space-y-6 pb-24 md:pb-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-950/40 via-slate-900/60 to-slate-950/40 p-4 sm:p-5 rounded-3xl border border-blue-500/15">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-950/50 via-[#0b1330] to-slate-950/60 p-4 sm:p-5 rounded-3xl border border-cyan-500/20 shadow-lg shadow-blue-950/30">
         <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-400/30 text-[10px] font-extrabold tracking-widest text-cyan-300 uppercase">
+              AZRYL HISTORY
+            </span>
+          </div>
           <h1 className="text-xl sm:text-2xl font-bold font-display text-white">
             Riwayat Transaksi
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Pantau status pesanan layanan dan konfirmasi deposit saldo Anda.
+            Pantau status pesanan layanan dan konfirmasi deposit saldo Anda di AM PREMIUM · AZRYL.
           </p>
         </div>
 
@@ -217,28 +310,35 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
               const isSuccess = ord.status === 'Berhasil';
               const isProcessing = ord.status === 'Sedang diproses' || ord.status === 'Menunggu proses';
               const isFailed = ord.status === 'Gagal';
+              const isBulk = ord.productId === 'bulk-am';
+              const bulkAccounts = isBulk ? extractBulkAccounts(ord.apiResponse) : [];
+              const verifMessage = !isBulk ? extractVerifMessage(ord) : '';
 
               return (
                 <div
                   key={ord.id}
-                  className="rounded-2xl bg-[#090e21] border border-blue-500/15 overflow-hidden transition-all hover:border-blue-500/30"
+                  className="rounded-3xl bg-gradient-to-br from-[#091128] via-[#080d1e] to-[#060b19] border border-blue-500/20 overflow-hidden transition-all hover:border-cyan-400/35 shadow-lg shadow-blue-950/20"
                 >
                   <div 
                     onClick={() => toggleExpand(ord.id)}
                     className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-950/70 border border-blue-500/30 text-cyan-400 flex items-center justify-center font-display font-extrabold text-xs shrink-0 mt-0.5">
-                        {ord.productId === 'bulk-am' ? 'BULK' : 'VERIF'}
+                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600/25 to-cyan-500/15 border border-cyan-400/30 text-cyan-300 flex flex-col items-center justify-center font-display font-extrabold text-[10px] shrink-0 mt-0.5">
+                        <span>{isBulk ? 'BULK' : 'VERIF'}</span>
+                        <span className="text-[7px] text-cyan-400/80 tracking-widest">AZRYL</span>
                       </div>
 
                       <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-white text-xs">{ord.productName}</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-white text-xs sm:text-sm">{ord.productName}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 border border-cyan-400/25 text-[9px] font-extrabold tracking-widest text-cyan-300 uppercase">
+                            AZRYL
+                          </span>
                           <span className="text-[10px] text-slate-400 font-mono">({ord.id})</span>
                         </div>
                         <div className="text-xs text-cyan-300 font-mono">
-                          {ord.productId === 'bulk-am' ? `Layanan: ${ord.quantity} Akun Bulk AM` : `Target: ${ord.email}`}
+                          {isBulk ? `Layanan: ${ord.quantity} Akun Bulk AM` : `Target: ${ord.email}`}
                         </div>
                         <div className="text-[10px] text-slate-500">
                           {new Date(ord.createdAt).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -246,7 +346,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
+                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800/80">
                       <div className="text-left sm:text-right">
                         <div className="font-display font-extrabold text-sm text-white">
                           {ord.totalPrice.toLocaleString()}
@@ -274,7 +374,114 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                     </div>
                   </div>
 
-                  {/* Expandable Details */}
+                  {/* AM Bulk: ONLY email, inbox_link, validUntil */}
+                  {isBulk && bulkAccounts.length > 0 && (
+                    <div className="px-4 pb-4 pt-1 space-y-2.5">
+                      <div className="p-3.5 rounded-2xl bg-slate-950/85 border border-cyan-500/20 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-extrabold uppercase tracking-widest text-cyan-300">
+                            Akun Bulk AM · AZRYL
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {bulkAccounts.length} Akun
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          {bulkAccounts.map((acc, idx) => (
+                            <div
+                              key={idx}
+                              className="p-3 rounded-xl bg-black/50 border border-slate-800/90 hover:border-cyan-500/30 transition-all space-y-2"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
+                                  Akun #{idx + 1} · AZRYL
+                                </span>
+                                {acc.validUntil && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-400/25 text-[10px] font-medium text-amber-300">
+                                    <Clock className="w-3 h-3" />
+                                    <span>Valid Until: {formatValidUntil(acc.validUntil)}</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div className="px-3 py-2 rounded-lg bg-[#070d1f] border border-slate-800 flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <Mail className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                    <div className="min-w-0">
+                                      <div className="text-[9px] uppercase tracking-wider text-slate-400">Email</div>
+                                      <div className="text-xs font-mono text-white truncate">{acc.email || '-'}</div>
+                                    </div>
+                                  </div>
+                                  {acc.email && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleCopy(acc.email, `${ord.id}-email-${idx}`, e)}
+                                      className="p-1.5 rounded-md bg-slate-900 hover:bg-blue-600/30 border border-slate-700 text-cyan-300 shrink-0 cursor-pointer"
+                                      title="Salin Email"
+                                    >
+                                      {copiedKey === `${ord.id}-email-${idx}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="px-3 py-2 rounded-lg bg-[#070d1f] border border-slate-800 flex items-center justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[9px] uppercase tracking-wider text-slate-400">Inbox Link</div>
+                                    <div className="text-xs font-mono text-cyan-300 truncate">{acc.inbox_link || '-'}</div>
+                                  </div>
+                                  {acc.inbox_link && (
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleCopy(acc.inbox_link, `${ord.id}-inbox-${idx}`, e)}
+                                        className="p-1.5 rounded-md bg-slate-900 hover:bg-blue-600/30 border border-slate-700 text-slate-300 cursor-pointer"
+                                        title="Salin Link"
+                                      >
+                                        {copiedKey === `${ord.id}-inbox-${idx}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                      </button>
+                                      <a
+                                        href={acc.inbox_link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="px-2.5 py-1 rounded-md bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-[10px] font-bold inline-flex items-center gap-1"
+                                      >
+                                        <span>Inbox</span>
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AM Verif: Message Display */}
+                  {!isBulk && verifMessage && (
+                    <div className="px-4 pb-4 pt-1">
+                      <div className={`p-3 rounded-2xl border flex items-start gap-2.5 text-xs ${
+                        isSuccess
+                          ? 'bg-emerald-950/25 border-emerald-500/25 text-emerald-200'
+                          : 'bg-rose-950/30 border-rose-500/25 text-rose-200'
+                      }`}>
+                        <MessageSquareText className="w-4 h-4 shrink-0 mt-0.5 opacity-80" />
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-extrabold uppercase tracking-widest opacity-80 mb-0.5">
+                            Message · AZRYL
+                          </div>
+                          <div className="font-medium leading-relaxed break-words">{verifMessage}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Expandable Extra Details */}
                   {isExpanded && (
                     <div className="px-4 pb-4 pt-2 border-t border-slate-800/80 bg-black/40 text-xs space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
@@ -292,7 +499,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                             <span className="font-mono text-cyan-300 break-all">{ord.link}</span>
                           </div>
                         )}
-                        {ord.errorNote && (
+                        {isBulk && ord.errorNote && (
                           <div className="sm:col-span-2 text-rose-300">
                             <span className="font-semibold">Catatan: </span>
                             <span>{ord.errorNote}</span>

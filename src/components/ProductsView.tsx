@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useToast } from './Toast.tsx';
 import { ProductItem, OrderTransaction } from '../types/index.ts';
+import { db, doc, setDoc } from '../lib/firebase.ts';
+import {
+  extractBulkAccounts,
+  extractVerifMessage,
+  formatValidUntil
+} from '../utils/orderFormatting.ts';
 import { 
   ShoppingBag, 
   Minus, 
@@ -16,7 +22,10 @@ import {
   RefreshCw,
   Wallet,
   Clock,
-  Sparkles
+  Sparkles,
+  Copy,
+  Check,
+  ExternalLink
 } from 'lucide-react';
 
 interface ProductsViewProps {
@@ -53,6 +62,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   const [isSendingLink, setIsSendingLink] = useState(false);
   const [verifProcessing, setVerifProcessing] = useState(false);
   const [verifOrderResult, setVerifOrderResult] = useState<OrderTransaction | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = (text: string, key: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedKey(key);
+    showToast('Berhasil disalin ke clipboard!', 'success');
+    setTimeout(() => setCopiedKey(prev => (prev === key ? null : prev)), 2000);
+  };
 
   const handleSendLinkToEmail = async () => {
     if (!verifEmail || !verifEmail.includes('@')) {
@@ -62,9 +80,23 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
     setIsSendingLink(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      const res = await fetch('/api/verif/send-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gmail: verifEmail.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.success === false) {
+        showToast(data.error || 'Gagal mengirim link ke Gmail. Periksa kembali alamat Gmail Anda.', 'error');
+        return;
+      }
+
       setIsLinkSentToEmail(true);
       showToast(`Link verifikasi telah dikirim ke ${verifEmail}! Buka Gmail dan tempelkan link di kolom yang muncul.`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Terjadi kesalahan jaringan saat mengirim link ke Gmail.', 'error');
     } finally {
       setIsSendingLink(false);
     }
@@ -139,6 +171,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           uid: userProfile.uid,
+          userEmail: userProfile.email,
+          userName: userProfile.name,
+          syncedBalance: userProfile.balance,
           quantity: bulkQuantity
         })
       });
@@ -151,8 +186,16 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       }
 
       setBulkOrderResult(data.order);
+      if (data.order?.id) {
+        setDoc(doc(db, 'orders', data.order.id), data.order, { merge: true }).catch(() => {});
+      }
       if (typeof data.currentBalance === 'number') {
         updateBalanceLocally(data.currentBalance);
+        setDoc(
+          doc(db, 'users', userProfile.uid),
+          { balance: data.currentBalance, updatedAt: new Date().toISOString() },
+          { merge: true }
+        ).catch(() => {});
       } else {
         refreshUserProfile();
       }
@@ -202,6 +245,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           uid: userProfile.uid,
+          userEmail: userProfile.email,
+          userName: userProfile.name,
+          syncedBalance: userProfile.balance,
           email: verifEmail.trim(),
           link: verifLink.trim()
         })
@@ -215,8 +261,16 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       }
 
       setVerifOrderResult(data.order);
+      if (data.order?.id) {
+        setDoc(doc(db, 'orders', data.order.id), data.order, { merge: true }).catch(() => {});
+      }
       if (typeof data.currentBalance === 'number') {
         updateBalanceLocally(data.currentBalance);
+        setDoc(
+          doc(db, 'users', userProfile.uid),
+          { balance: data.currentBalance, updatedAt: new Date().toISOString() },
+          { merge: true }
+        ).catch(() => {});
       } else {
         refreshUserProfile();
       }
@@ -239,13 +293,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-24 md:pb-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-950/40 via-slate-900/60 to-slate-950/40 p-4 sm:p-5 rounded-3xl border border-blue-500/15">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-950/50 via-[#0b1330] to-slate-950/60 p-4 sm:p-5 rounded-3xl border border-cyan-500/20 shadow-lg shadow-blue-950/30">
         <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-400/30 text-[10px] font-extrabold tracking-widest text-cyan-300 uppercase">
+              AZRYL OFFICIAL
+            </span>
+          </div>
           <h1 className="text-xl sm:text-2xl font-bold font-display text-white">
             Order Layanan AM
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Pilih jenis layanan Alight Motion: Bulk akun otomatis atau verifikasi link resmi.
+            Pilih jenis layanan Alight Motion: Bulk akun otomatis atau verifikasi link resmi by AZRYL.
           </p>
         </div>
 
@@ -488,58 +547,137 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           </div>
 
           {/* Bulk Live Execution Result Box */}
-          {bulkOrderResult && (
-            <div className={`p-5 rounded-3xl border ${
-              bulkOrderResult.status === 'Berhasil'
-                ? 'bg-emerald-950/30 border-emerald-500/30'
-                : 'bg-rose-950/30 border-rose-500/30'
-            }`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  {bulkOrderResult.status === 'Berhasil' ? (
-                    <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
-                  )}
-                  <div>
-                    <h3 className="text-sm font-bold text-white">
-                      Status Transaksi: {bulkOrderResult.status}
-                    </h3>
-                    <p className="text-xs text-slate-300 mt-1">
-                      ID: <span className="font-mono text-cyan-300">{bulkOrderResult.id}</span> · Jumlah: <span className="font-mono">{bulkOrderResult.quantity} akun Bulk AM</span>
-                    </p>
-                    {bulkOrderResult.errorNote && (
-                      <p className="text-xs text-amber-300 mt-1 font-medium">{bulkOrderResult.errorNote}</p>
+          {bulkOrderResult && (() => {
+            const bulkAccounts = extractBulkAccounts(bulkOrderResult.apiResponse);
+            const isSuccess = bulkOrderResult.status === 'Berhasil';
+            return (
+              <div className={`p-5 rounded-3xl border shadow-xl relative overflow-hidden ${
+                isSuccess
+                  ? 'bg-gradient-to-br from-[#07162c] via-[#091229] to-[#061822] border-cyan-500/30'
+                  : 'bg-rose-950/30 border-rose-500/30'
+              }`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    {isSuccess ? (
+                      <div className="w-9 h-9 rounded-2xl bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                      </div>
+                    ) : (
+                      <div className="w-9 h-9 rounded-2xl bg-rose-500/15 border border-rose-400/30 flex items-center justify-center shrink-0">
+                        <AlertCircle className="w-5 h-5 text-rose-400" />
+                      </div>
                     )}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setActiveTab('history')}
-                  className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-300 hover:text-white"
-                >
-                  Lihat Riwayat
-                </button>
-              </div>
-
-              {/* Account attempt breakdown */}
-              {bulkOrderResult.apiResponse?.results && (
-                <div className="mt-4 pt-3 border-t border-slate-800 space-y-1.5">
-                  <span className="text-[11px] font-semibold text-slate-400">Rincian Respon Server per Akun:</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
-                    {bulkOrderResult.apiResponse.results.map((res: any, idx: number) => (
-                      <div key={idx} className="p-2 rounded-lg bg-black/40 border border-slate-800 text-[11px] flex items-center justify-between">
-                        <span>Akun #{res.attempt || idx + 1}</span>
-                        <span className={res.statusCode === 200 || !res.error ? 'text-emerald-400 font-mono' : 'text-rose-400 font-mono'}>
-                          {res.statusCode ? `HTTP ${res.statusCode}` : (res.error ? 'Gagal' : 'Sukses')}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-white">
+                          Status Transaksi: {bulkOrderResult.status}
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-md bg-blue-500/20 border border-cyan-400/30 text-[9px] font-extrabold tracking-widest text-cyan-300 uppercase">
+                          AZRYL
                         </span>
                       </div>
-                    ))}
+                      <p className="text-xs text-slate-300 mt-1">
+                        ID: <span className="font-mono text-cyan-300">{bulkOrderResult.id}</span> · Jumlah: <span className="font-mono">{bulkOrderResult.quantity} akun Bulk AM</span>
+                      </p>
+                      {bulkOrderResult.errorNote && (
+                        <p className="text-xs text-amber-300 mt-1 font-medium">{bulkOrderResult.errorNote}</p>
+                      )}
+                    </div>
                   </div>
+
+                  <button
+                    onClick={() => setActiveTab('history')}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-cyan-500/30 text-xs text-cyan-200 hover:text-white hover:border-cyan-400 transition-all cursor-pointer"
+                  >
+                    Lihat Riwayat
+                  </button>
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Display ONLY email, inbox_link, validUntil */}
+                {bulkAccounts.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-cyan-500/15 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-300">
+                        Detail Akun Bulk AM · AZRYL ({bulkAccounts.length})
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3">
+                      {bulkAccounts.map((acc, idx) => (
+                        <div
+                          key={idx}
+                          className="p-4 rounded-2xl bg-slate-950/80 border border-blue-500/25 hover:border-cyan-400/40 transition-all space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="px-2.5 py-0.5 rounded-lg bg-blue-600/20 border border-blue-400/30 text-[10px] font-bold text-cyan-300">
+                              AKUN #{idx + 1} · AZRYL
+                            </span>
+                            {acc.validUntil && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-400/25 text-[11px] font-medium text-amber-300">
+                                <Clock className="w-3 h-3" />
+                                <span>Valid: {formatValidUntil(acc.validUntil)}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div className="p-2.5 rounded-xl bg-black/50 border border-slate-800 flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-[10px] text-slate-400 uppercase tracking-wider">Email</div>
+                                <div className="text-xs font-mono font-semibold text-white truncate">
+                                  {acc.email || '-'}
+                                </div>
+                              </div>
+                              {acc.email && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(acc.email, `prod-email-${idx}`)}
+                                  className="p-1.5 rounded-lg bg-slate-900 hover:bg-blue-600/30 border border-slate-700 text-cyan-300 shrink-0 cursor-pointer"
+                                  title="Salin Email"
+                                >
+                                  {copiedKey === `prod-email-${idx}` ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="p-2.5 rounded-xl bg-black/50 border border-slate-800 flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-[10px] text-slate-400 uppercase tracking-wider">Inbox Link</div>
+                                <div className="text-xs font-mono text-cyan-300 truncate">
+                                  {acc.inbox_link || '-'}
+                                </div>
+                              </div>
+                              {acc.inbox_link && (
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(acc.inbox_link, `prod-inbox-${idx}`)}
+                                    className="p-1.5 rounded-lg bg-slate-900 hover:bg-blue-600/30 border border-slate-700 text-slate-300 cursor-pointer"
+                                    title="Salin Link"
+                                  >
+                                    {copiedKey === `prod-inbox-${idx}` ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                  </button>
+                                  <a
+                                    href={acc.inbox_link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-[11px] font-bold inline-flex items-center gap-1"
+                                  >
+                                    <span>Buka</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -780,41 +918,63 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           </div>
 
           {/* Verif Result Feedback */}
-          {verifOrderResult && (
-            <div className={`p-5 rounded-3xl border ${
-              verifOrderResult.status === 'Berhasil'
-                ? 'bg-emerald-950/30 border-emerald-500/30'
-                : 'bg-rose-950/30 border-rose-500/30'
-            }`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  {verifOrderResult.status === 'Berhasil' ? (
-                    <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
-                  )}
-                  <div>
-                    <h3 className="text-sm font-bold text-white">
-                      Verifikasi: {verifOrderResult.status}
-                    </h3>
-                    <p className="text-xs text-slate-300 mt-1">
-                      ID: <span className="font-mono text-cyan-300">{verifOrderResult.id}</span> · Akun: <span className="font-mono">{verifOrderResult.email}</span>
-                    </p>
-                    {verifOrderResult.errorNote && (
-                      <p className="text-xs text-amber-300 mt-1 font-medium">{verifOrderResult.errorNote}</p>
+          {verifOrderResult && (() => {
+            const isSuccess = verifOrderResult.status === 'Berhasil';
+            const verifMsg = extractVerifMessage(verifOrderResult);
+            return (
+              <div className={`p-5 rounded-3xl border shadow-xl ${
+                isSuccess
+                  ? 'bg-gradient-to-br from-[#07162c] via-[#091229] to-[#061822] border-cyan-500/30'
+                  : 'bg-rose-950/30 border-rose-500/30'
+              }`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    {isSuccess ? (
+                      <div className="w-9 h-9 rounded-2xl bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                      </div>
+                    ) : (
+                      <div className="w-9 h-9 rounded-2xl bg-rose-500/15 border border-rose-400/30 flex items-center justify-center shrink-0">
+                        <AlertCircle className="w-5 h-5 text-rose-400" />
+                      </div>
                     )}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-white">
+                          Verifikasi: {verifOrderResult.status}
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-md bg-blue-500/20 border border-cyan-400/30 text-[9px] font-extrabold tracking-widest text-cyan-300 uppercase">
+                          AZRYL
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 mt-1">
+                        ID: <span className="font-mono text-cyan-300">{verifOrderResult.id}</span> · Akun: <span className="font-mono">{verifOrderResult.email}</span>
+                      </p>
+                    </div>
                   </div>
+
+                  <button
+                    onClick={() => setActiveTab('history')}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-cyan-500/30 text-xs text-cyan-200 hover:text-white cursor-pointer"
+                  >
+                    Lihat Riwayat
+                  </button>
                 </div>
 
-                <button
-                  onClick={() => setActiveTab('history')}
-                  className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-300 hover:text-white"
-                >
-                  Lihat Riwayat
-                </button>
+                {/* Display API Message */}
+                <div className={`mt-4 p-3.5 rounded-2xl border text-xs ${
+                  isSuccess
+                    ? 'bg-emerald-950/30 border-emerald-500/25 text-emerald-200'
+                    : 'bg-rose-950/40 border-rose-500/30 text-rose-200'
+                }`}>
+                  <div className="text-[10px] font-bold uppercase tracking-wider opacity-75 mb-1">
+                    Message · AZRYL Server
+                  </div>
+                  <div className="font-medium leading-relaxed">{verifMsg}</div>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
 

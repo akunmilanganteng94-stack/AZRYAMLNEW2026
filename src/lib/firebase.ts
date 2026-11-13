@@ -11,10 +11,22 @@ import {
   onAuthStateChanged,
   User as FirebaseUser
 } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  updateDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  increment
+} from 'firebase/firestore';
 
 export const firebaseConfig = {
-  apiKey: "AIzaSyDKABkfEnfTtvN6PHl0odEJjScgQcmR98",
+  apiKey: "AIzaSyDKABkfEnfTtvN6PHl0odEJjScgQcmrA98",
   authDomain: "am-azryl.firebaseapp.com",
   projectId: "am-azryl",
   storageBucket: "am-azryl.firebasestorage.app",
@@ -42,5 +54,10 @@ export {
   getDoc,
   onSnapshot,
   updateDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  increment,
   type FirebaseUser
 };

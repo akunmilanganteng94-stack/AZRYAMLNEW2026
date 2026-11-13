@@ -57,6 +57,8 @@ export interface OrderTransaction {
 export interface ApiConfiguration {
   bulkApiUrl: string;
   bulkApiKey: string;
+  sendApiUrl?: string;
+  sendApiKey?: string;
   verifApiUrl: string;
   verifApiKey: string;
 }
