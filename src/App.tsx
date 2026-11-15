@@ -97,7 +97,7 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen text-slate-950 flex relative selection:bg-[#FFE600] selection:text-slate-950">
+    <div className="min-h-screen bg-[#101114] text-slate-100 flex relative overflow-x-clip selection:bg-[#2563EB] selection:text-white">
 
       {/* Desktop Collapsible Sidebar */}
       <Sidebar
@@ -118,11 +118,11 @@ function MainApp() {
         />
 
         {/* Viewport Content */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 pb-28 md:pb-8 max-w-7xl w-full mx-auto">
           {renderContent()}
         </main>
 
-        {/* Mobile Bottom Navigation */}
+        {/* Mobile Floating Capsule Navigation */}
         <BottomNav
           activeTab={activeTab}
           setActiveTab={setActiveTab}

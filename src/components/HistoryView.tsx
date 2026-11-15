@@ -219,17 +219,17 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
 
   if (!userProfile) {
     return (
-      <div className="max-w-md mx-auto text-center py-14 px-6 bg-white border-2 border-slate-950 rounded-2xl shadow-[5px_5px_0px_0px_#020617] space-y-4">
-        <div className="w-16 h-16 mx-auto rounded-2xl bg-[#FFE600] border-2 border-slate-950 flex items-center justify-center text-slate-950">
+      <div className="max-w-md mx-auto text-center py-14 px-6 md-card rounded-3xl space-y-4">
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#0EA5E9] border border-blue-300/25 flex items-center justify-center text-white">
           <Clock className="w-8 h-8" />
         </div>
-        <h2 className="text-xl font-black font-display text-slate-950">Riwayat Transaksi</h2>
-        <p className="text-xs font-medium text-slate-600">
+        <h2 className="text-xl font-bold font-display text-white">Riwayat Transaksi</h2>
+        <p className="text-xs text-slate-400">
           Silakan masuk ke akun Anda terlebih dahulu untuk melihat seluruh riwayat order dan deposit.
         </p>
         <button
           onClick={onOpenAuth}
-          className="py-2.5 px-6 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn cursor-pointer"
+          className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white font-semibold text-xs nb-btn cursor-pointer"
         >
           Masuk Akun
         </button>
@@ -238,13 +238,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
   }
 
   return (
-    <div className="space-y-6 pb-24 md:pb-8">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-2xl border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 md-card p-5 sm:p-6 rounded-3xl">
         <div>
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className="px-2 py-0.5 rounded bg-[#FFE600] border border-slate-950 text-[10px] font-black tracking-widest text-slate-950 uppercase">
-              AZRYL HISTORY
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <span className="px-2.5 py-0.5 rounded-full bg-blue-500/15 border border-blue-400/25 text-[11px] font-semibold text-blue-300">
+              AZRYL History
             </span>
             <button
               type="button"
@@ -252,7 +252,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                 setActiveCategory('orders');
                 setStatusFilter('Berhasil');
               }}
-              className="px-2 py-0.5 rounded bg-[#DCFCE7] hover:bg-[#4ADE80] border border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
+              className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/25 text-[11px] font-semibold text-emerald-300 cursor-pointer transition-colors"
             >
               Order Berhasil: {orders.filter((o) => o.status === 'Berhasil').length}
             </button>
@@ -262,22 +262,22 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                 setActiveCategory('deposits');
                 setStatusFilter('Berhasil');
               }}
-              className="px-2 py-0.5 rounded bg-[#E0F2FE] hover:bg-[#38BDF8] border border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
+              className="px-2.5 py-0.5 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/25 text-[11px] font-semibold text-sky-300 cursor-pointer transition-colors"
             >
               Deposit Berhasil: {deposits.filter((d) => d.status === 'Berhasil').length}
             </button>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black font-display text-slate-950">
+          <h1 className="text-xl sm:text-2xl font-bold font-display text-white">
             Riwayat Transaksi
           </h1>
-          <p className="text-xs font-medium text-slate-600 mt-0.5">
-            Pantau status pesanan layanan dan konfirmasi deposit saldo Anda di AM PREMIUM · AZRYL.
+          <p className="text-xs text-slate-400 mt-0.5">
+            Pantau status pesanan layanan dan konfirmasi deposit saldo Anda di AM PREMIUM AZRYL.
           </p>
         </div>
 
         <button
           onClick={() => fetchTransactions()}
-          className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#FFE600] border-2 border-slate-950 text-slate-950 font-extrabold text-xs nb-btn flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+          className="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/12 text-white font-semibold text-xs flex items-center gap-1.5 self-start sm:self-auto transition-colors cursor-pointer"
           title="Refresh Data"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -287,16 +287,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
 
       {/* Category Tabs & Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center p-1.5 bg-white rounded-xl border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] w-fit gap-1.5">
+        <div className="flex items-center p-1.5 md-card rounded-2xl w-fit gap-1.5">
           <button
             onClick={() => {
               setActiveCategory('orders');
               setStatusFilter('all');
             }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeCategory === 'orders'
-                ? 'bg-[#FFE600] text-slate-950 border-2 border-slate-950'
-                : 'text-slate-700 hover:text-slate-950 border-2 border-transparent'
+                ? 'bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white shadow-[0_6px_18px_-4px_rgba(37,99,235,0.6)]'
+                : 'text-slate-400 hover:text-white'
             }`}
           >
             <ShoppingBag className="w-3.5 h-3.5" />
@@ -308,10 +308,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
               setActiveCategory('deposits');
               setStatusFilter('all');
             }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeCategory === 'deposits'
-                ? 'bg-[#38BDF8] text-slate-950 border-2 border-slate-950'
-                : 'text-slate-700 hover:text-slate-950 border-2 border-transparent'
+                ? 'bg-gradient-to-r from-[#2563EB] to-[#0EA5E9] text-white shadow-[0_6px_18px_-4px_rgba(14,165,233,0.55)]'
+                : 'text-slate-400 hover:text-white'
             }`}
           >
             <Wallet className="w-3.5 h-3.5" />
@@ -322,20 +322,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
         {/* Search & Filter */}
         <div className="flex items-center gap-2 flex-1 max-w-md">
           <div className="relative flex-1">
-            <Search className="w-3.5 h-3.5 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Cari ID, email, atau nominal..."
-              className="w-full pl-9 pr-3 py-2 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
+              className="w-full pl-9 pr-3 py-2.5 nb-input rounded-xl text-xs font-medium placeholder-slate-500"
             />
           </div>
 
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 nb-input rounded-xl text-xs font-bold"
+            className="px-3 py-2.5 nb-input rounded-xl text-xs font-semibold"
           >
             <option value="all">Semua Status</option>
             {activeCategory === 'orders' ? (
@@ -356,18 +356,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
         </div>
       </div>
 
-      {/* =========================================================================
-          TAB 1: RIWAYAT ORDER
-         ========================================================================= */}
+      {/* TAB 1: RIWAYAT ORDER */}
       {activeCategory === 'orders' && (
         <div className="space-y-4">
           {filteredOrders.length === 0 ? (
-            <div className="p-12 text-center rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617]">
+            <div className="p-12 text-center rounded-3xl md-card">
               <ShoppingBag className="w-10 h-10 text-slate-500 mx-auto mb-2" />
-              <p className="text-xs font-bold text-slate-700">Belum ada riwayat pemesanan yang cocok.</p>
+              <p className="text-xs font-medium text-slate-400">Belum ada riwayat pemesanan yang cocok.</p>
               <button
                 onClick={() => setActiveTab('menu')}
-                className="mt-3 px-4 py-2 rounded-xl bg-[#2563EB] text-white text-xs font-extrabold nb-btn cursor-pointer"
+                className="mt-4 px-4 py-2 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white text-xs font-semibold nb-btn cursor-pointer"
               >
                 Mulai Belanja
               </button>
@@ -378,41 +376,45 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
               const isSuccess = ord.status === 'Berhasil';
               const isProcessing = ord.status === 'Sedang diproses' || ord.status === 'Menunggu proses';
               const isFailed = ord.status === 'Gagal';
-              const isBulk = ord.productId === 'bulk-am';
+              const isBulk =
+                ord.productId === 'bulk-am' ||
+                (ord.productName || '').toLowerCase().includes('bulk');
               const bulkAccounts = isBulk ? extractBulkAccounts(ord.apiResponse) : [];
               const verifMessage = !isBulk ? extractVerifMessage(ord) : '';
 
               return (
                 <div
                   key={ord.id}
-                  className="rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden"
+                  className="rounded-3xl md-card overflow-hidden"
                 >
                   <div
                     onClick={() => toggleExpand(ord.id)}
-                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none hover:bg-[#F0F4FF] transition-colors"
+                    className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none hover:bg-white/[0.03] transition-colors"
                   >
                     <div className="flex items-start gap-3">
                       <div
-                        className={`w-11 h-11 rounded-xl border-2 border-slate-950 text-slate-950 flex flex-col items-center justify-center font-display font-black text-[10px] shrink-0 mt-0.5 ${
-                          isBulk ? 'bg-[#FFE600]' : 'bg-[#38BDF8]'
+                        className={`w-11 h-11 rounded-2xl border flex flex-col items-center justify-center font-display font-bold text-[10px] shrink-0 mt-0.5 ${
+                          isBulk
+                            ? 'bg-gradient-to-br from-[#2563EB] to-[#1D4ED8] border-blue-300/30 text-white'
+                            : 'bg-gradient-to-br from-[#0284C7] to-[#2563EB] border-sky-300/30 text-white'
                         }`}
                       >
                         <span>{isBulk ? 'BULK' : 'VERIF'}</span>
-                        <span className="text-[7px] tracking-widest">AZRYL</span>
+                        <span className="text-[7px] tracking-widest opacity-80">AZRYL</span>
                       </div>
 
-                      <div className="space-y-0.5">
+                      <div className="space-y-0.5 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-black text-slate-950 text-xs sm:text-sm">{ord.productName}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-slate-950 text-[9px] font-black tracking-widest text-[#FFE600] uppercase">
+                          <span className="font-bold text-white text-xs sm:text-sm">{ord.productName}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-400/25 text-[10px] font-semibold text-blue-300">
                             AZRYL
                           </span>
-                          <span className="text-[10px] font-bold text-slate-600 font-mono">({ord.id})</span>
+                          <span className="text-[11px] text-slate-400 font-mono">({ord.id})</span>
                         </div>
-                        <div className="text-xs font-bold text-[#2563EB] font-mono">
+                        <div className="text-xs font-medium text-sky-300 font-mono truncate">
                           {isBulk ? `Layanan: ${ord.quantity} Akun Bulk AM` : `Target: ${ord.email}`}
                         </div>
-                        <div className="text-[10px] font-semibold text-slate-500">
+                        <div className="text-[11px] text-slate-400">
                           {new Date(ord.createdAt).toLocaleString('id-ID', {
                             dateStyle: 'medium',
                             timeStyle: 'short'
@@ -421,30 +423,30 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t-2 sm:border-t-0 pt-2.5 sm:pt-0 border-slate-950/15">
+                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2.5 sm:pt-0 border-white/[0.06]">
                       <div className="text-left sm:text-right">
-                        <div className="font-mono font-black text-sm text-slate-950 tabular-nums">
+                        <div className="font-mono font-bold text-sm text-white tabular-nums">
                           {ord.totalPrice.toLocaleString()}
                         </div>
-                        <span className="text-[10px] font-bold text-slate-600">{ord.quantity} Akun</span>
+                        <span className="text-[11px] text-slate-400">{ord.quantity} Akun</span>
                       </div>
 
                       <div className="flex items-center gap-2">
                         <span
-                          className={`text-[10px] font-black px-2.5 py-1 rounded-lg border-2 border-slate-950 ${
+                          className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
                             isSuccess
-                              ? 'bg-[#4ADE80] text-slate-950'
+                              ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
                               : isProcessing
-                              ? 'bg-[#38BDF8] text-slate-950'
+                              ? 'bg-sky-500/15 border-sky-400/30 text-sky-300'
                               : isFailed
-                              ? 'bg-[#FB7185] text-slate-950'
-                              : 'bg-[#FFE600] text-slate-950'
+                              ? 'bg-rose-500/15 border-rose-400/30 text-rose-300'
+                              : 'bg-blue-500/15 border-blue-400/30 text-blue-300'
                           }`}
                         >
                           {ord.status}
                         </span>
 
-                        <div className="text-slate-950">
+                        <div className="text-slate-400">
                           {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                         </div>
                       </div>
@@ -453,13 +455,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
 
                   {/* AM Bulk: ONLY email, inbox_link, validUntil */}
                   {isBulk && bulkAccounts.length > 0 && (
-                    <div className="px-4 pb-4 pt-1 space-y-2.5">
-                      <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 space-y-2.5">
+                    <div className="px-4 sm:px-5 pb-4 pt-1 space-y-2.5">
+                      <div className="p-3.5 rounded-2xl bg-[#12141A] border border-white/[0.08] space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-950">
+                          <span className="text-[11px] font-semibold text-blue-300">
                             Akun Bulk AM · AZRYL
                           </span>
-                          <span className="text-[10px] font-extrabold text-slate-700">
+                          <span className="text-[11px] font-medium text-slate-400">
                             {bulkAccounts.length} Akun
                           </span>
                         </div>
@@ -468,14 +470,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                           {bulkAccounts.map((acc, idx) => (
                             <div
                               key={idx}
-                              className="p-3 rounded-xl bg-white border-2 border-slate-950 space-y-2"
+                              className="p-3 rounded-xl bg-[#1C1E24] border border-white/[0.08] space-y-2"
                             >
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="px-2 py-0.5 rounded bg-[#FFE600] border border-slate-950 text-[10px] font-black text-slate-950 uppercase tracking-wider">
+                                <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-400/25 text-[10px] font-semibold text-blue-300">
                                   Akun #{idx + 1} · AZRYL
                                 </span>
                                 {acc.validUntil && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#E0F2FE] border border-slate-950 text-[10px] font-bold text-slate-950">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/25 text-[10px] font-medium text-sky-200">
                                     <Clock className="w-3 h-3" />
                                     <span>Valid Until: {formatValidUntil(acc.validUntil)}</span>
                                   </span>
@@ -483,14 +485,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                               </div>
 
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                <div className="px-3 py-2 rounded-lg bg-[#F0F4FF] border-2 border-slate-950 flex items-center justify-between gap-2">
+                                <div className="px-3 py-2 rounded-xl bg-[#12141A] border border-white/[0.06] flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <Mail className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+                                    <Mail className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                                     <div className="min-w-0">
-                                      <div className="text-[9px] font-black uppercase tracking-wider text-slate-500">
-                                        Email
-                                      </div>
-                                      <div className="text-xs font-mono font-bold text-slate-950 truncate">
+                                      <div className="text-[10px] text-slate-400">Email</div>
+                                      <div className="text-xs font-mono font-semibold text-white truncate">
                                         {acc.email || '-'}
                                       </div>
                                     </div>
@@ -499,11 +499,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                                     <button
                                       type="button"
                                       onClick={(e) => handleCopy(acc.email, `${ord.id}-email-${idx}`, e)}
-                                      className="p-1.5 rounded-lg bg-white hover:bg-[#FFE600] border border-slate-950 text-slate-950 shrink-0 cursor-pointer"
+                                      className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-blue-500/25 border border-white/10 text-slate-200 shrink-0 cursor-pointer"
                                       title="Salin Email"
                                     >
                                       {copiedKey === `${ord.id}-email-${idx}` ? (
-                                        <Check className="w-3 h-3 text-[#16A34A]" />
+                                        <Check className="w-3 h-3 text-emerald-400" />
                                       ) : (
                                         <Copy className="w-3 h-3" />
                                       )}
@@ -511,12 +511,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                                   )}
                                 </div>
 
-                                <div className="px-3 py-2 rounded-lg bg-[#F0F4FF] border-2 border-slate-950 flex items-center justify-between gap-2">
+                                <div className="px-3 py-2 rounded-xl bg-[#12141A] border border-white/[0.06] flex items-center justify-between gap-2">
                                   <div className="min-w-0 flex-1">
-                                    <div className="text-[9px] font-black uppercase tracking-wider text-slate-500">
-                                      Inbox Link
-                                    </div>
-                                    <div className="text-xs font-mono font-bold text-[#2563EB] truncate">
+                                    <div className="text-[10px] text-slate-400">Inbox Link</div>
+                                    <div className="text-xs font-mono font-semibold text-sky-300 truncate">
                                       {acc.inbox_link || '-'}
                                     </div>
                                   </div>
@@ -525,11 +523,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                                       <button
                                         type="button"
                                         onClick={(e) => handleCopy(acc.inbox_link, `${ord.id}-inbox-${idx}`, e)}
-                                        className="p-1.5 rounded-lg bg-white hover:bg-[#FFE600] border border-slate-950 text-slate-950 cursor-pointer"
+                                        className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-blue-500/25 border border-white/10 text-slate-200 cursor-pointer"
                                         title="Salin Link"
                                       >
                                         {copiedKey === `${ord.id}-inbox-${idx}` ? (
-                                          <Check className="w-3 h-3 text-[#16A34A]" />
+                                          <Check className="w-3 h-3 text-emerald-400" />
                                         ) : (
                                           <Copy className="w-3 h-3" />
                                         )}
@@ -539,7 +537,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         onClick={(e) => e.stopPropagation()}
-                                        className="px-2.5 py-1 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white border border-slate-950 text-[10px] font-extrabold inline-flex items-center gap-1"
+                                        className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white text-[10px] font-semibold inline-flex items-center gap-1"
                                       >
                                         <span>Inbox</span>
                                         <ExternalLink className="w-3 h-3" />
@@ -557,18 +555,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
 
                   {/* AM Verif: Message Display */}
                   {!isBulk && verifMessage && (
-                    <div className="px-4 pb-4 pt-1">
+                    <div className="px-4 sm:px-5 pb-4 pt-1">
                       <div
-                        className={`p-3 rounded-xl border-2 border-slate-950 flex items-start gap-2.5 text-xs ${
-                          isSuccess ? 'bg-[#DCFCE7] text-slate-950' : 'bg-[#FFE4E6] text-slate-950'
+                        className={`p-3.5 rounded-2xl border flex items-start gap-2.5 text-xs ${
+                          isSuccess
+                            ? 'bg-emerald-500/10 border-emerald-400/25 text-emerald-100'
+                            : 'bg-rose-500/10 border-rose-400/25 text-rose-100'
                         }`}
                       >
-                        <MessageSquareText className="w-4 h-4 shrink-0 mt-0.5 text-slate-950" />
+                        <MessageSquareText className="w-4 h-4 shrink-0 mt-0.5 text-blue-300" />
                         <div className="min-w-0">
-                          <div className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-0.5">
+                          <div className="text-[10px] font-semibold text-blue-300 mb-0.5">
                             Message · AZRYL
                           </div>
-                          <div className="font-bold leading-relaxed break-words">{verifMessage}</div>
+                          <div className="font-medium leading-relaxed break-words">{verifMessage}</div>
                         </div>
                       </div>
                     </div>
@@ -576,24 +576,24 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
 
                   {/* Expandable Extra Details */}
                   {isExpanded && (
-                    <div className="px-4 pb-4 pt-3 border-t-2 border-slate-950 bg-[#EBF1FF] text-xs space-y-2">
+                    <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-white/[0.08] bg-[#12141A] text-xs space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                         <div>
-                          <span className="font-bold text-slate-600">ID Transaksi: </span>
-                          <span className="font-mono font-bold text-slate-950">{ord.id}</span>
+                          <span className="text-slate-400">ID Transaksi: </span>
+                          <span className="font-mono font-semibold text-white">{ord.id}</span>
                         </div>
                         <div>
-                          <span className="font-bold text-slate-600">Email Pemesan: </span>
-                          <span className="font-mono font-bold text-slate-950">{ord.userEmail}</span>
+                          <span className="text-slate-400">Email Pemesan: </span>
+                          <span className="font-mono font-semibold text-white">{ord.userEmail}</span>
                         </div>
                         {ord.link && (
                           <div className="sm:col-span-2">
-                            <span className="font-bold text-slate-600">Link Verifikasi: </span>
-                            <span className="font-mono font-bold text-[#2563EB] break-all">{ord.link}</span>
+                            <span className="text-slate-400">Link Verifikasi: </span>
+                            <span className="font-mono font-semibold text-sky-300 break-all">{ord.link}</span>
                           </div>
                         )}
                         {isBulk && ord.errorNote && (
-                          <div className="sm:col-span-2 text-[#DC2626] font-bold">
+                          <div className="sm:col-span-2 text-rose-300 font-medium">
                             <span>Catatan: </span>
                             <span>{ord.errorNote}</span>
                           </div>
@@ -608,18 +608,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
         </div>
       )}
 
-      {/* =========================================================================
-          TAB 2: RIWAYAT DEPOSIT
-         ========================================================================= */}
+      {/* TAB 2: RIWAYAT DEPOSIT */}
       {activeCategory === 'deposits' && (
         <div className="space-y-3">
           {filteredDeposits.length === 0 ? (
-            <div className="p-12 text-center rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617]">
+            <div className="p-12 text-center rounded-3xl md-card">
               <Wallet className="w-10 h-10 text-slate-500 mx-auto mb-2" />
-              <p className="text-xs font-bold text-slate-700">Belum ada riwayat deposit yang tercatat.</p>
+              <p className="text-xs font-medium text-slate-400">Belum ada riwayat deposit yang tercatat.</p>
               <button
                 onClick={() => setActiveTab('deposit')}
-                className="mt-3 px-4 py-2 rounded-xl bg-[#2563EB] text-white text-xs font-extrabold nb-btn cursor-pointer"
+                className="mt-4 px-4 py-2 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white text-xs font-semibold nb-btn cursor-pointer"
               >
                 Isi Saldo QRIS
               </button>
@@ -632,23 +630,23 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
               return (
                 <div
                   key={dep.id}
-                  className="rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] p-4"
+                  className="rounded-3xl md-card p-4 sm:p-5"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-[#FFE600] border-2 border-slate-950 text-slate-950 flex items-center justify-center shrink-0 mt-0.5">
+                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#0EA5E9] border border-blue-300/25 text-white flex items-center justify-center shrink-0 mt-0.5">
                         <Wallet className="w-5 h-5" />
                       </div>
 
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-2">
-                          <span className="font-black text-slate-950 text-xs">Deposit QRIS</span>
-                          <span className="text-[10px] font-bold text-slate-600 font-mono">({dep.id})</span>
+                          <span className="font-bold text-white text-xs">Deposit QRIS</span>
+                          <span className="text-[11px] text-slate-400 font-mono">({dep.id})</span>
                         </div>
-                        <div className="text-xs font-semibold text-slate-700">
-                          Pengirim: <span className="font-black text-slate-950">{dep.senderName}</span>
+                        <div className="text-xs text-slate-300">
+                          Pengirim: <span className="font-semibold text-white">{dep.senderName}</span>
                         </div>
-                        <div className="text-[10px] font-semibold text-slate-500">
+                        <div className="text-[11px] text-slate-400">
                           {new Date(dep.createdAt).toLocaleString('id-ID', {
                             dateStyle: 'medium',
                             timeStyle: 'short'
@@ -657,23 +655,23 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t-2 sm:border-t-0 pt-2.5 sm:pt-0 border-slate-950/15">
+                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2.5 sm:pt-0 border-white/[0.06]">
                       <div className="text-left sm:text-right">
-                        <div className="font-mono font-black text-sm text-[#2563EB] tabular-nums">
+                        <div className="font-mono font-bold text-sm text-sky-300 tabular-nums">
                           +{dep.amount.toLocaleString()}
                         </div>
-                        <span className="text-[10px] font-bold text-slate-600">
+                        <span className="text-[11px] text-slate-400">
                           Rp {dep.amount.toLocaleString('id-ID')}
                         </span>
                       </div>
 
                       <span
-                        className={`text-[10px] font-black px-2.5 py-1 rounded-lg border-2 border-slate-950 ${
+                        className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
                           isApproved
-                            ? 'bg-[#4ADE80] text-slate-950'
+                            ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
                             : isPending
-                            ? 'bg-[#FFE600] text-slate-950'
-                            : 'bg-[#FB7185] text-slate-950'
+                            ? 'bg-blue-500/15 border-blue-400/30 text-blue-300'
+                            : 'bg-rose-500/15 border-rose-400/30 text-rose-300'
                         }`}
                       >
                         {dep.status}
@@ -682,8 +680,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onOpenAuth, setActiveT
                   </div>
 
                   {dep.adminNote && (
-                    <div className="mt-3 pt-2.5 border-t-2 border-slate-950/15 text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                      <span className="text-slate-950">Catatan Admin:</span>
+                    <div className="mt-3 pt-2.5 border-t border-white/[0.08] text-[11px] text-slate-300 flex items-center gap-1.5">
+                      <span className="font-semibold text-blue-300">Catatan Admin:</span>
                       <span className="italic">"{dep.adminNote}"</span>
                     </div>
                   )}

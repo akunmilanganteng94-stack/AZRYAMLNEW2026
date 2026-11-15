@@ -35,50 +35,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
     userProfile?.email?.toLowerCase().trim() === 'apriliansyahazril10@gmail.com';
 
   const mainNavItems = [
-    { id: 'home', label: 'Dashboard', icon: Home, accent: 'bg-[#FFE600]' },
-    { id: 'menu', label: 'Order Layanan', icon: ShoppingBag, accent: 'bg-[#38BDF8]' },
-    { id: 'history', label: 'Riwayat Transaksi', icon: Clock, accent: 'bg-[#4ADE80]' },
-    { id: 'deposit', label: 'Deposit Saldo', icon: Wallet, accent: 'bg-[#FFE600]' },
-    { id: 'account', label: 'Akun Saya', icon: User, accent: 'bg-[#E0E7FF]' },
-    ...(isAdmin ? [{ id: 'admin', label: 'Panel Admin', icon: ShieldCheck, accent: 'bg-[#FB923C]' }] : [])
+    { id: 'home', label: 'Dashboard', icon: Home },
+    { id: 'menu', label: 'Order Layanan', icon: ShoppingBag },
+    { id: 'history', label: 'Riwayat Transaksi', icon: Clock },
+    { id: 'deposit', label: 'Deposit Saldo', icon: Wallet },
+    { id: 'account', label: 'Akun Saya', icon: User },
+    ...(isAdmin ? [{ id: 'admin', label: 'Panel Admin', icon: ShieldCheck }] : [])
   ];
 
   return (
     <aside
-      className={`hidden md:flex flex-col justify-between h-screen sticky top-0 transition-all duration-200 z-40 bg-[#DCE4FB] border-r-2 border-slate-950 ${
+      className={`hidden md:flex flex-col justify-between h-screen sticky top-0 transition-all duration-200 z-40 bg-[#14161D]/95 backdrop-blur-xl border-r border-white/[0.08] ${
         collapsed ? 'w-[84px]' : 'w-[272px]'
       }`}
     >
       {/* Top Workspace Brand + Balance + Navigation */}
       <div className="flex flex-col min-h-0 overflow-y-auto">
-        {/* Header Brand */}
-        <div className="h-16 flex items-center justify-between px-4 border-b-2 border-slate-950 bg-gradient-to-r from-[#DCE4FB] to-[#F0F4FF]">
+        {/* Header Brand (Sejajar AM PREMIUM AZRYL) */}
+        <div className="h-16 flex items-center justify-between px-4 bg-gradient-to-r from-[#0B1E4F] via-[#173B9A] to-[#1D4ED8] border-b border-blue-400/20">
           {!collapsed ? (
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-[#FFE600] p-1 border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] flex items-center justify-center overflow-hidden shrink-0">
+            <button
+              onClick={() => setActiveTab('home')}
+              className="flex items-center gap-2.5 min-w-0 cursor-pointer text-left"
+            >
+              <div className="w-9 h-9 rounded-xl bg-white/15 p-1 border border-white/25 shadow-[0_4px_12px_rgba(0,0,0,0.3)] flex items-center justify-center overflow-hidden shrink-0">
                 <img
                   src="https://cdn.corenexis.com/f/eJVaVCyH.png"
-                  alt="AM PREMIUM Logo"
+                  alt="AM PREMIUM AZRYL"
                   className="w-full h-full object-contain"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src = '/images/am-logo.png';
                   }}
                 />
               </div>
-              <div className="min-w-0">
-                <div className="font-display font-black text-sm tracking-tight text-slate-950 truncate">
-                  AM PREMIUM
-                </div>
-                <span className="inline-block text-[10px] font-extrabold uppercase tracking-widest bg-slate-950 text-[#FFE600] px-1.5 py-0.5 rounded">
-                  BY AZRYL
-                </span>
-              </div>
-            </div>
+              <span className="font-display font-extrabold text-[13px] tracking-tight text-white whitespace-nowrap truncate">
+                AM PREMIUM AZRYL
+              </span>
+            </button>
           ) : (
-            <div className="mx-auto w-10 h-10 rounded-xl bg-[#FFE600] p-1 border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] flex items-center justify-center overflow-hidden">
+            <div className="mx-auto w-9 h-9 rounded-xl bg-white/15 p-1 border border-white/25 flex items-center justify-center overflow-hidden">
               <img
                 src="https://cdn.corenexis.com/f/eJVaVCyH.png"
-                alt="AM PREMIUM Logo"
+                alt="AM PREMIUM AZRYL"
                 className="w-full h-full object-contain"
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = '/images/am-logo.png';
@@ -89,42 +87,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="p-1.5 rounded-lg bg-white border-2 border-slate-950 text-slate-950 hover:bg-[#FFE600] shadow-[2px_2px_0px_0px_#020617] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer shrink-0"
+            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-white transition-all cursor-pointer shrink-0"
             title={collapsed ? 'Perluas Sidebar' : 'Perkecil Sidebar'}
           >
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
         </div>
 
-        {/* Modern Sidebar Balance Module */}
+        {/* Blue Gradient Sidebar Balance Card */}
         {!collapsed ? (
-          <div className="p-4 border-b-2 border-slate-950 bg-[#EBF1FF]">
-            <div className="p-3.5 rounded-2xl bg-[#FFE600] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-2.5">
+          <div className="p-4 border-b border-white/[0.06]">
+            <div className="p-4 rounded-2xl md-blue-gradient border border-blue-300/25 space-y-3 relative overflow-hidden">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-950">
+                <span className="text-[11px] font-semibold text-blue-100/90">
                   Saldo Akun
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-md bg-white border border-slate-950 font-mono font-bold text-slate-950">
-                  AKTIF
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/15 border border-white/20 font-mono font-semibold text-white">
+                  QRIS Ready
                 </span>
               </div>
 
-              <div className="font-display font-black text-2xl text-slate-950 tabular-nums tracking-tight">
+              <div className="font-display font-black text-2xl text-white tabular-nums tracking-tight">
                 {userProfile ? userProfile.balance.toLocaleString() : '0'}
               </div>
 
               {userProfile ? (
                 <button
                   onClick={() => setActiveTab('deposit')}
-                  className="w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-blue-600 text-white border-2 border-slate-950 text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_0px_#FFFFFF] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                  className="w-full py-2 px-3 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 text-xs font-semibold flex items-center justify-center gap-1.5 backdrop-blur-sm transition-all cursor-pointer"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
-                  <span>Top Up QRIS</span>
+                  <span>Top Up Saldo</span>
                 </button>
               ) : (
                 <button
                   onClick={onOpenAuth}
-                  className="w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-blue-600 text-white border-2 border-slate-950 text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  className="w-full py-2 px-3 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                 >
                   <span>Login / Daftar</span>
                 </button>
@@ -132,10 +130,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
         ) : (
-          <div className="p-3 border-b-2 border-slate-950 bg-[#EBF1FF] text-center">
+          <div className="p-3 border-b border-white/[0.06] text-center">
             <button
               onClick={() => setActiveTab('deposit')}
-              className="w-11 h-11 mx-auto rounded-xl bg-[#FFE600] border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] flex items-center justify-center text-slate-950 hover:bg-[#38BDF8] transition-all cursor-pointer"
+              className="w-11 h-11 mx-auto rounded-xl bg-gradient-to-br from-[#2563EB] to-[#0EA5E9] border border-blue-300/25 shadow-[0_6px_18px_-4px_rgba(37,99,235,0.6)] flex items-center justify-center text-white hover:brightness-110 transition-all cursor-pointer"
               title="Isi Saldo"
             >
               <Wallet className="w-5 h-5" />
@@ -146,13 +144,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Section Heading */}
         {!collapsed && (
           <div className="px-4 pt-4 pb-1.5">
-            <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">
+            <span className="text-[11px] font-semibold tracking-wider text-slate-500">
               Menu Utama
             </span>
           </div>
         )}
 
-        {/* Navigation Links */}
+        {/* Vertical Navigation Links */}
         <nav className="px-3 py-2 space-y-1.5">
           {mainNavItems.map((item) => {
             const Icon = item.icon;
@@ -163,25 +161,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   isActive
-                    ? `${item.accent} text-slate-950 border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617]`
+                    ? 'bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white border border-blue-300/25 shadow-[0_8px_22px_-6px_rgba(37,99,235,0.65)]'
                     : isAdminItem
-                    ? 'bg-[#FFF7ED] text-slate-950 border-2 border-slate-950 hover:bg-[#FED7AA]'
-                    : 'text-slate-800 border-2 border-transparent hover:border-slate-950 hover:bg-[#F0F4FF] hover:text-slate-950'
+                    ? 'text-sky-300 border border-blue-500/20 bg-blue-500/10 hover:bg-blue-500/20 hover:text-white'
+                    : 'text-slate-400 border border-transparent hover:bg-white/[0.05] hover:text-white'
                 }`}
                 title={collapsed ? item.label : undefined}
               >
                 <div
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border-2 ${
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
                     isActive
-                      ? 'bg-white border-slate-950 text-slate-950'
+                      ? 'bg-white/20 text-white'
                       : isAdminItem
-                      ? 'bg-[#FB923C] border-slate-950 text-slate-950'
-                      : 'bg-[#F0F4FF] border-slate-950 text-slate-950'
+                      ? 'bg-blue-500/20 text-sky-300'
+                      : 'bg-white/[0.04] text-slate-400'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
+                  <Icon className="w-4 h-4" />
                 </div>
 
                 {!collapsed && (
@@ -189,8 +187,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
 
                 {!collapsed && isAdminItem && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded border border-slate-950 bg-slate-950 text-[#FFE600] font-extrabold tracking-wider">
-                    ROOT
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-sky-200 font-semibold">
+                    Root
                   </span>
                 )}
               </button>
@@ -200,23 +198,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Bottom Profile & Logout Section */}
-      <div className="p-3 border-t-2 border-slate-950 bg-[#DCE4FB] space-y-2">
+      <div className="p-3 border-t border-white/[0.08] space-y-2">
         {userProfile && !collapsed && (
-          <div className="px-3 py-2 rounded-xl bg-[#F0F4FF] border-2 border-slate-950 flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#38BDF8] border-2 border-slate-950 flex items-center justify-center font-display font-black text-xs text-slate-950 shrink-0">
+          <button
+            onClick={() => setActiveTab('account')}
+            className="w-full px-3 py-2.5 rounded-xl bg-[#1C1E24] hover:bg-white/[0.06] border border-white/[0.08] flex items-center gap-2.5 text-left transition-colors cursor-pointer"
+          >
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#2563EB] to-[#0EA5E9] flex items-center justify-center font-display font-bold text-xs text-white shrink-0">
               {userProfile.name.charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-extrabold text-slate-950 truncate">{userProfile.name}</div>
-              <div className="text-[10px] font-mono text-slate-600 truncate">{userProfile.email}</div>
+              <div className="text-xs font-bold text-white truncate">{userProfile.name}</div>
+              <div className="text-[11px] font-mono text-slate-400 truncate">{userProfile.email}</div>
             </div>
-          </div>
+          </button>
         )}
 
         {userProfile && (
           <button
             onClick={() => logout()}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold bg-[#FFE4E6] hover:bg-[#FB7185] text-slate-950 border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer ${
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 transition-all cursor-pointer ${
               collapsed ? 'justify-center' : ''
             }`}
             title="Keluar"
@@ -227,8 +228,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {!collapsed && (
-          <div className="pt-1 text-[10px] font-extrabold tracking-wider text-slate-500 text-center uppercase">
-            AM PREMIUM · AZRYL
+          <div className="pt-1 text-[10px] font-semibold tracking-wider text-slate-500 text-center">
+            AM PREMIUM AZRYL
           </div>
         )}
       </div>

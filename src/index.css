@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --font-display: 'Outfit', 'Plus Jakarta Sans', system-ui, sans-serif;
@@ -7,77 +9,96 @@
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 body {
   font-family: var(--font-sans);
-  background-color: #EBF1FF;
-  color: #020617;
+  background-color: #101114;
+  color: #F1F5F9;
   background-image:
-    linear-gradient(to right, rgba(37, 99, 235, 0.055) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(37, 99, 235, 0.055) 1px, transparent 1px),
-    linear-gradient(135deg, #EBF1FF 0%, #F0F4FF 50%, #EBF1FF 100%);
-  background-size: 28px 28px, 28px 28px, 100% 100%;
-  background-attachment: fixed;
+    radial-gradient(ellipse 80% 42% at 50% -8%, rgba(37, 99, 235, 0.22), transparent 70%),
+    linear-gradient(to right, rgba(59, 130, 246, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(59, 130, 246, 0.055) 1px, transparent 1px);
+  background-size: 100% 100%, 30px 30px, 30px 30px;
 }
 
-/* Custom Neo-Brutalist Scrollbar */
+/* Modern Dark Blue Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 ::-webkit-scrollbar-track {
-  background: #DCE4FB;
-  border-left: 2px solid #020617;
+  background: #101114;
 }
 ::-webkit-scrollbar-thumb {
-  background: #020617;
+  background: #282D3A;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #2563EB;
 }
 
-/* Crisp Neo-Brutalism Utilities */
+/* Modern Dark Dashboard Surfaces & Blue Gradient Tokens */
+.md-card,
 .nb-card {
-  background-color: #FFFFFF;
-  border: 2px solid #020617;
-  box-shadow: 4px 4px 0px 0px #020617;
+  background-color: #1C1E24;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.68), 0 0 24px -14px rgba(37, 99, 235, 0.3);
 }
 
+.md-card-sm,
 .nb-card-sm {
-  background-color: #FFFFFF;
-  border: 2px solid #020617;
-  box-shadow: 2px 2px 0px 0px #020617;
+  background-color: #1C1E24;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.55);
+}
+
+.md-glass {
+  background-color: rgba(28, 30, 36, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.md-blue-gradient {
+  background: linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 42%, #2563EB 75%, #0EA5E9 100%);
+  box-shadow: 0 14px 36px -12px rgba(37, 99, 235, 0.55);
 }
 
 .nb-btn {
-  border: 2px solid #020617;
-  box-shadow: 3px 3px 0px 0px #020617;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 20px -8px rgba(37, 99, 235, 0.45);
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s ease, filter 0.16s ease, background-color 0.16s ease;
 }
 
 .nb-btn:hover:not(:disabled) {
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0px 0px #020617;
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow: 0 12px 26px -8px rgba(59, 130, 246, 0.6);
 }
 
 .nb-btn:active:not(:disabled) {
-  transform: translate(2px, 2px);
-  box-shadow: 0px 0px 0px 0px #020617;
+  transform: translateY(0px) scale(0.985);
 }
 
 .nb-input {
-  background-color: #FFFFFF;
-  border: 2px solid #020617;
-  color: #020617;
-  transition: box-shadow 0.12s ease, background-color 0.12s ease;
+  background-color: #12141A;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #F8FAFC;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
 
 .nb-input:focus {
   outline: none;
-  background-color: #F0F4FF;
-  box-shadow: 3px 3px 0px 0px #020617;
+  background-color: #151821;
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.22);
+}
+
+.nb-input option {
+  background-color: #1C1E24;
+  color: #F8FAFC;
 }
 
 .font-display {

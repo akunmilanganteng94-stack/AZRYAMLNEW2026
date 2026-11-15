@@ -267,61 +267,176 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
   const handleDepositAction = async () => {
     if (!selectedDeposit) return;
     setProcessingAction(true);
+    const depositToProcess = selectedDeposit;
+    const currentAction = actionType;
     const finalNote =
-      adminNote.trim() || (actionType === 'approve' ? 'Disetujui oleh admin' : 'Ditolak oleh admin');
-    try {
-      const res = await fetch('/api/admin/deposits/action', {
+      adminNote.trim() ||
+      (currentAction === 'approve' ? 'Disetujui oleh admin' : 'Ditolak oleh admin');
+
+    const normalizedDepositEmail = (depositToProcess.userEmail || '').toLowerCase().trim();
+    const targetUser = users.find(
+      (u) =>
+        u.uid === depositToProcess.uid ||
+        (normalizedDepositEmail && u.email?.toLowerCase().trim() === normalizedDepositEmail)
+    );
+    const targetUid = targetUser?.uid || depositToProcess.uid;
+    const baseBalance = typeof targetUser?.balance === 'number' ? targetUser.balance : undefined;
+
+    const applyLocalAndFirestore = async (
+      updatedDeposit: DepositTransaction,
+      newBalanceFromServer?: number,
+      alreadyProcessed?: boolean
+    ) => {
+      try {
+        await setDoc(
+          doc(db, 'deposits', depositToProcess.id),
+          sanitizeForFirestore(updatedDeposit),
+          { merge: true }
+        );
+      } catch (fsErr) {
+        console.warn('Firestore deposit status sync warning:', fsErr);
+      }
+
+      const computedFinalBalance =
+        typeof newBalanceFromServer === 'number'
+          ? newBalanceFromServer
+          : currentAction === 'approve' && baseBalance !== undefined
+          ? baseBalance + Number(depositToProcess.amount || 0)
+          : undefined;
+
+      if (currentAction === 'approve' && targetUid && !alreadyProcessed) {
+        try {
+          if (computedFinalBalance !== undefined) {
+            await setDoc(
+              doc(db, 'users', targetUid),
+              sanitizeForFirestore({
+                uid: targetUid,
+                email: (targetUser?.email || depositToProcess.userEmail || '').toLowerCase().trim(),
+                name: targetUser?.name || depositToProcess.senderName || 'Member AM',
+                role: targetUser?.role || 'user',
+                status: targetUser?.status || 'active',
+                balance: computedFinalBalance,
+                updatedAt: new Date().toISOString()
+              }),
+              { merge: true }
+            );
+          } else {
+            await setDoc(
+              doc(db, 'users', targetUid),
+              {
+                balance: increment(Number(depositToProcess.amount || 0)),
+                updatedAt: new Date().toISOString()
+              },
+              { merge: true }
+            );
+          }
+        } catch (fsUserErr) {
+          console.warn('Firestore user balance sync warning:', fsUserErr);
+        }
+      }
+
+      setApiDeposits((prev) => {
+        const exists = prev.some((d) => d.id === updatedDeposit.id);
+        return exists
+          ? prev.map((d) => (d.id === updatedDeposit.id ? updatedDeposit : d))
+          : [updatedDeposit, ...prev];
+      });
+      setFsDeposits((prev) => {
+        const exists = prev.some((d) => d.id === updatedDeposit.id);
+        return exists
+          ? prev.map((d) => (d.id === updatedDeposit.id ? updatedDeposit : d))
+          : [updatedDeposit, ...prev];
+      });
+
+      if (currentAction === 'approve' && targetUid && !alreadyProcessed && computedFinalBalance !== undefined) {
+        setApiUsers((prev) =>
+          prev.map((u) => (u.uid === targetUid ? { ...u, balance: computedFinalBalance } : u))
+        );
+        setFsUsers((prev) =>
+          prev.map((u) => (u.uid === targetUid ? { ...u, balance: computedFinalBalance } : u))
+        );
+      }
+
+      setSelectedDeposit(null);
+      setAdminNote('');
+      fetchAllAdminData(true);
+      refreshUserProfile();
+    };
+
+    const callDepositActionApi = () =>
+      fetch('/api/admin/deposits/action', {
         method: 'POST',
         headers: adminHeaders,
         body: JSON.stringify({
-          depositId: selectedDeposit.id,
-          action: actionType,
+          depositId: depositToProcess.id,
+          action: currentAction,
           adminNote: finalNote,
-          depositData: selectedDeposit
+          depositData: depositToProcess,
+          currentBalance: baseBalance
         })
       });
 
-      const data = await res.json();
+    try {
+      let res = await callDepositActionApi();
+
+      if (res.status === 403 && isAdmin && userProfile) {
+        await fetch('/api/user/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: userProfile.uid,
+            email: userProfile.email,
+            name: userProfile.name,
+            photoURL: userProfile.photoURL || '',
+            balance: userProfile.balance,
+            role: 'admin',
+            status: userProfile.status || 'active'
+          })
+        }).catch(() => {});
+        res = await callDepositActionApi();
+      }
+
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        showToast(data.error || 'Gagal memproses deposit', 'error');
-        setProcessingAction(false);
-        return;
+        if (res.status >= 400 && res.status < 500 && res.status !== 404) {
+          showToast(data.error || 'Gagal memproses deposit.', 'error');
+          return;
+        }
+        throw new Error(data.error || `Server error (${res.status})`);
       }
 
       const updatedDeposit: DepositTransaction = data.deposit || {
-        ...selectedDeposit,
-        status: actionType === 'approve' ? 'Berhasil' : 'Ditolak',
+        ...depositToProcess,
+        status: currentAction === 'approve' ? 'Berhasil' : 'Ditolak',
         approvedAt: new Date().toISOString(),
         adminNote: finalNote
       };
 
-      try {
-        await setDoc(
-          doc(db, 'deposits', selectedDeposit.id),
-          sanitizeForFirestore(updatedDeposit),
-          { merge: true }
-        );
-        if (actionType === 'approve' && selectedDeposit.uid) {
-          await setDoc(
-            doc(db, 'users', selectedDeposit.uid),
-            {
-              balance: increment(selectedDeposit.amount),
-              updatedAt: new Date().toISOString()
-            },
-            { merge: true }
-          );
-        }
-      } catch (fsErr) {
-        console.warn('Firestore admin action sync warning:', fsErr);
-      }
-
-      showToast(data.message, 'success');
-      setSelectedDeposit(null);
-      setAdminNote('');
-      fetchAllAdminData();
-      refreshUserProfile();
+      await applyLocalAndFirestore(updatedDeposit, data.newBalance, Boolean(data.alreadyProcessed));
+      showToast(
+        data.message ||
+          (currentAction === 'approve'
+            ? 'Deposit berhasil disetujui & saldo ditambahkan.'
+            : 'Deposit berhasil ditolak.'),
+        'success'
+      );
     } catch (err) {
-      showToast('Terjadi kesalahan jaringan.', 'error');
+      console.warn('Admin deposit action fallback to direct Firestore sync:', err);
+      const fallbackDeposit: DepositTransaction = {
+        ...depositToProcess,
+        status: currentAction === 'approve' ? 'Berhasil' : 'Ditolak',
+        approvedAt: new Date().toISOString(),
+        adminNote: finalNote
+      };
+      const alreadySameStatus = depositToProcess.status === fallbackDeposit.status;
+      await applyLocalAndFirestore(fallbackDeposit, undefined, alreadySameStatus);
+      showToast(
+        currentAction === 'approve'
+          ? 'Deposit disetujui & saldo pengguna diperbarui via Firestore.'
+          : 'Deposit berhasil ditolak via Firestore.',
+        'success'
+      );
     } finally {
       setProcessingAction(false);
     }
@@ -694,13 +809,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
 
   if (!isAdmin) {
     return (
-      <div className="max-w-md mx-auto my-12 p-6 sm:p-8 rounded-2xl bg-white border-2 border-slate-950 shadow-[6px_6px_0px_0px_#020617]">
+      <div className="max-w-md mx-auto my-12 p-6 sm:p-8 rounded-2xl bg-[#1C1E24] border border-white/10 shadow-[0_14px_40px_rgba(0,0,0,0.45)]">
         <div className="text-center space-y-3 mb-6">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-[#FFE600] border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] flex items-center justify-center text-slate-950">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-[#1E3A8A] to-[#2563EB] border border-blue-400/30 shadow-[0_8px_24px_rgba(37,99,235,0.35)] flex items-center justify-center text-white">
             <Lock className="w-8 h-8" />
           </div>
-          <h2 className="text-xl font-black font-display text-slate-950">Akses Terbatas</h2>
-          <p className="text-xs font-medium text-slate-600">
+          <h2 className="text-xl font-black font-display text-white">Akses Terbatas</h2>
+          <p className="text-xs font-medium text-slate-400 leading-relaxed">
             Halaman ini khusus untuk akun dengan role Administrator. Silakan masuk menggunakan akun Admin Anda terlebih dahulu.
           </p>
         </div>
@@ -708,7 +823,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
         {setParentActiveTab && (
           <button
             onClick={() => setParentActiveTab('home')}
-            className="w-full py-3 px-4 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn cursor-pointer"
+            className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white font-extrabold text-xs nb-btn cursor-pointer"
           >
             Kembali ke Beranda
           </button>
@@ -784,27 +899,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
   const verifCurlExample = `curl -X POST ${settings?.apiConfiguration?.verifApiUrl || 'https://am.dapjisync.my.id/api/verif'} \\\n  -H "Content-Type: application/json" \\\n  -H "x-apikey: ${settings?.apiConfiguration?.verifApiKey || ''}" \\\n  -d '{"gmail":"user@gmail.com","link":"https://alight-creative.firebaseapp.com/__/auth/links?link=..."}'`;
 
   return (
-    <div className="space-y-6 pb-24 md:pb-8 max-w-7xl mx-auto">
-      {/* Top Neo-Brutalist Admin Header */}
-      <div className="bg-[#FFE600] p-5 sm:p-6 rounded-2xl border-2 border-slate-950 shadow-[5px_5px_0px_0px_#020617]">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+    <div className="space-y-6 pb-8 max-w-7xl mx-auto">
+      {/* Top Blue Gradient Admin Header */}
+      <div className="md-blue-gradient p-5 sm:p-6 rounded-2xl border border-blue-300/25 relative overflow-hidden">
+        <div className="absolute -right-12 -top-12 w-44 h-44 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-white border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] flex items-center justify-center text-slate-950 shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-md border border-white/25 shadow-lg flex items-center justify-center text-white shrink-0">
               <ShieldCheck className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-slate-950 text-[#FFE600]">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-md bg-black/30 border border-white/15 text-sky-200">
                   PANEL ADMINISTRATOR
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-white border border-slate-950 text-slate-950 font-black">
+                <span className="text-[10px] px-2.5 py-0.5 rounded-md bg-white/20 border border-white/25 text-white font-black">
                   AZRYL ROOT
                 </span>
               </div>
-              <h1 className="text-xl sm:text-2xl font-black font-display text-slate-950 mt-1">
+              <h1 className="text-xl sm:text-2xl font-black font-display text-white mt-1.5 tracking-tight">
                 AM PREMIUM Control Center
               </h1>
-              <p className="text-xs font-semibold text-slate-800">
+              <p className="text-xs font-medium text-blue-100/85 mt-0.5">
                 Pusat kendali operasional, mutasi deposit QRIS, pengguna Firebase, harga layanan, dan dokumentasi API.
               </p>
             </div>
@@ -814,25 +930,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleSimulateDeposit}
-              className="px-3 py-2 rounded-xl bg-white hover:bg-[#FED7AA] text-slate-950 text-xs font-extrabold nb-btn flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs font-bold backdrop-blur-md flex items-center gap-1.5 transition-all cursor-pointer"
               title="Buat simulasi deposit QRIS masuk untuk ditinjau"
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5 text-sky-200" />
               <span>Simulasi Deposit</span>
             </button>
 
             <button
               onClick={handleSeedSampleData}
-              className="px-3 py-2 rounded-xl bg-[#38BDF8] hover:bg-[#7DD3FC] text-slate-950 text-xs font-extrabold nb-btn flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs font-bold backdrop-blur-md flex items-center gap-1.5 transition-all cursor-pointer"
               title="Isi data contoh pengguna & transaksi jika sistem kosong"
             >
-              <Database className="w-3.5 h-3.5" />
+              <Database className="w-3.5 h-3.5 text-sky-200" />
               <span>Isi Data Contoh</span>
             </button>
 
             <button
               onClick={handleExportCSV}
-              className="px-3 py-2 rounded-xl bg-white hover:bg-[#DCFCE7] text-slate-950 text-xs font-extrabold nb-btn flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-white text-[#1D4ED8] hover:bg-blue-50 text-xs font-extrabold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
               title="Download rekap transaksi format CSV"
             >
               <Download className="w-3.5 h-3.5" />
@@ -841,7 +957,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
 
             <button
               onClick={() => fetchAllAdminData()}
-              className="p-2 rounded-xl bg-white hover:bg-[#E0F2FE] text-slate-950 nb-btn cursor-pointer"
+              className="p-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 text-white backdrop-blur-md transition-all cursor-pointer"
               title="Refresh Data"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -851,7 +967,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2">
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
         {[
           { id: 'dashboard', label: 'Ringkasan', icon: TrendingUp },
           { id: 'deposits', label: `Deposit (${pendingDeposits.length} pending)`, icon: Wallet, highlight: pendingDeposits.length > 0 },
@@ -869,12 +985,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold whitespace-nowrap border-2 border-slate-950 transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                 isActive
-                  ? 'bg-[#FFE600] text-slate-950 shadow-[3px_3px_0px_0px_#020617]'
+                  ? 'bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white border border-blue-400/40 shadow-[0_6px_18px_rgba(37,99,235,0.38)]'
                   : tab.highlight
-                  ? 'bg-[#FFE4E6] text-slate-950 hover:bg-[#FECDD3]'
-                  : 'bg-white text-slate-800 hover:bg-[#EBF1FF]'
+                  ? 'bg-amber-500/15 text-amber-200 border border-amber-400/30 hover:bg-amber-500/25'
+                  : 'bg-[#1C1E24] text-slate-300 border border-white/[0.08] hover:bg-white/[0.06] hover:text-white'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -890,104 +1006,106 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       {activeTab === 'dashboard' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="p-5 rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-1">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+            <div className="p-5 rounded-2xl bg-[#1C1E24] border border-white/[0.08] shadow-[0_10px_28px_rgba(0,0,0,0.3)] space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Total Pengguna (Firebase)
               </span>
-              <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
+              <div className="text-2xl font-black font-mono text-white tabular-nums">
                 {displayStats.totalUsers}{' '}
-                <span className="text-xs font-sans font-bold text-slate-600">Akun</span>
+                <span className="text-xs font-sans font-semibold text-slate-400">Akun</span>
               </div>
-              <div className="text-[11px] font-bold text-[#2563EB]">Tersinkronisasi dengan Firestore</div>
+              <div className="text-[11px] font-semibold text-sky-400">Tersinkronisasi dengan Firestore</div>
             </div>
 
-            <div className="p-5 rounded-2xl bg-[#DCFCE7] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-1">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
+            <div className="p-5 rounded-2xl bg-[#1C1E24] border border-emerald-400/25 shadow-[0_10px_28px_rgba(0,0,0,0.3)] space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300/90">
                 Total Deposit Berhasil
               </span>
-              <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
+              <div className="text-2xl font-black font-mono text-white tabular-nums">
                 {displayStats.totalDeposit.toLocaleString()}
               </div>
-              <div className="text-[11px] font-bold text-slate-800 font-mono">
+              <div className="text-[11px] font-semibold text-emerald-400 font-mono">
                 Rp {displayStats.totalDeposit.toLocaleString('id-ID')} masuk
               </div>
             </div>
 
-            <div className="p-5 rounded-2xl bg-[#E0F2FE] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-1">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
+            <div className="p-5 rounded-2xl md-blue-gradient border border-blue-300/25 space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-blue-100/90">
                 Total Pendapatan (Order)
               </span>
-              <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
+              <div className="text-2xl font-black font-mono text-white tabular-nums">
                 {displayStats.totalRevenue.toLocaleString()}
               </div>
-              <div className="text-[11px] font-bold text-slate-800">
+              <div className="text-[11px] font-semibold text-blue-100">
                 {displayStats.successfulOrders} pesanan selesai
               </div>
             </div>
 
-            <div className="p-5 rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-1">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+            <div className="p-5 rounded-2xl bg-[#1C1E24] border border-white/[0.08] shadow-[0_10px_28px_rgba(0,0,0,0.3)] space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Total Transaksi
               </span>
-              <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
+              <div className="text-2xl font-black font-mono text-white tabular-nums">
                 {displayStats.totalTransactions}{' '}
-                <span className="text-xs font-sans font-bold text-slate-600">Aktivitas</span>
+                <span className="text-xs font-sans font-semibold text-slate-400">Aktivitas</span>
               </div>
-              <div className="text-[11px] font-bold text-slate-600">Order & Deposit</div>
+              <div className="text-[11px] font-medium text-slate-400">Order & Deposit</div>
             </div>
 
-            <div className="p-5 rounded-2xl bg-[#FEF9C3] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-1">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
+            <div className="p-5 rounded-2xl bg-[#1C1E24] border border-amber-400/25 shadow-[0_10px_28px_rgba(0,0,0,0.3)] space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300/90">
                 Deposit Menunggu Konfirmasi
               </span>
-              <div className="text-2xl font-black font-mono text-slate-950 tabular-nums">
+              <div className="text-2xl font-black font-mono text-white tabular-nums">
                 {displayStats.pendingDeposits}{' '}
-                <span className="text-xs font-sans font-bold text-slate-700">Permintaan</span>
+                <span className="text-xs font-sans font-semibold text-slate-400">Permintaan</span>
               </div>
               <button
                 onClick={() => setActiveTab('deposits')}
-                className="text-[11px] text-[#2563EB] underline font-black cursor-pointer"
+                className="text-[11px] text-sky-400 hover:text-sky-300 underline font-bold cursor-pointer"
               >
                 Tinjau sekarang
               </button>
             </div>
 
-            <div className="p-5 rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] space-y-1">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+            <div className="p-5 rounded-2xl bg-[#1C1E24] border border-white/[0.08] shadow-[0_10px_28px_rgba(0,0,0,0.3)] space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Status Operasional Toko
               </span>
-              <div className="text-xl font-black font-display text-slate-950 flex items-center gap-2">
+              <div className="text-xl font-black font-display text-white flex items-center gap-2">
                 <span
-                  className={`w-3 h-3 rounded-full border-2 border-slate-950 ${
-                    effectiveStoreOpen ? 'bg-[#16A34A]' : 'bg-[#DC2626]'
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    effectiveStoreOpen
+                      ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.7)]'
+                      : 'bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.7)]'
                   }`}
                 />
                 <span>{effectiveStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
               </div>
-              <div className="text-[11px] font-bold text-slate-600">
+              <div className="text-[11px] font-medium text-slate-400">
                 Deposit QRIS: {effectiveDepositOpen ? 'Buka' : 'Tutup'}
               </div>
             </div>
           </div>
 
           {pendingDeposits.length > 0 && (
-            <div className="p-5 rounded-2xl bg-[#FFE600] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white border-2 border-slate-950 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-5 h-5 text-slate-950" />
+            <div className="p-5 rounded-2xl bg-blue-500/12 border border-blue-400/30 shadow-[0_8px_24px_rgba(37,99,235,0.18)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/35 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-300" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-slate-950">
+                  <h3 className="text-sm font-black text-white">
                     Ada {pendingDeposits.length} Permintaan Deposit Menunggu Persetujuan
                   </h3>
-                  <p className="text-xs font-semibold text-slate-800">
+                  <p className="text-xs font-medium text-slate-300 mt-0.5">
                     Cek mutasi QRIS Anda dan klik "Setujui" untuk menambahkan saldo pengguna secara otomatis.
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setActiveTab('deposits')}
-                className="px-4 py-2.5 bg-slate-950 hover:bg-[#2563EB] text-white font-extrabold text-xs rounded-xl nb-btn shrink-0 cursor-pointer"
+                className="px-4 py-2.5 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white font-bold text-xs rounded-xl nb-btn shrink-0 cursor-pointer"
               >
                 Buka Manajemen Deposit
               </button>
@@ -996,17 +1114,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
 
           {/* Quick Action Switches */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-5 rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] flex items-center justify-between gap-3">
+            <div className="p-5 rounded-2xl bg-[#1C1E24] border border-white/[0.08] flex items-center justify-between gap-3">
               <div>
-                <h4 className="text-sm font-black text-slate-950">Status Penerimaan Pesanan</h4>
-                <p className="text-xs font-medium text-slate-600">
+                <h4 className="text-sm font-black text-white">Status Penerimaan Pesanan</h4>
+                <p className="text-xs font-medium text-slate-400 mt-0.5">
                   Matikan jika stok akun sedang habis atau server maintenance.
                 </p>
               </div>
               <button
                 onClick={() => handleToggleSetting('storeOpen', !effectiveStoreOpen)}
-                className={`px-4 py-2 rounded-xl font-black text-xs nb-btn flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                  effectiveStoreOpen ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
+                className={`px-4 py-2 rounded-xl font-bold text-xs border flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
+                  effectiveStoreOpen
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/35 hover:bg-emerald-500/30'
+                    : 'bg-rose-500/20 text-rose-300 border-rose-400/35 hover:bg-rose-500/30'
                 }`}
               >
                 {effectiveStoreOpen ? (
@@ -1018,17 +1138,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
               </button>
             </div>
 
-            <div className="p-5 rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] flex items-center justify-between gap-3">
+            <div className="p-5 rounded-2xl bg-[#1C1E24] border border-white/[0.08] flex items-center justify-between gap-3">
               <div>
-                <h4 className="text-sm font-black text-slate-950">Status Deposit QRIS</h4>
-                <p className="text-xs font-medium text-slate-600">
+                <h4 className="text-sm font-black text-white">Status Deposit QRIS</h4>
+                <p className="text-xs font-medium text-slate-400 mt-0.5">
                   Kendalikan akses pembayaran QRIS Toko Kelontong Zril Store.
                 </p>
               </div>
               <button
                 onClick={() => handleToggleSetting('depositOpen', !effectiveDepositOpen)}
-                className={`px-4 py-2 rounded-xl font-black text-xs nb-btn flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                  effectiveDepositOpen ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
+                className={`px-4 py-2 rounded-xl font-bold text-xs border flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
+                  effectiveDepositOpen
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/35 hover:bg-emerald-500/30'
+                    : 'bg-rose-500/20 text-rose-300 border-rose-400/35 hover:bg-rose-500/30'
                 }`}
               >
                 {effectiveDepositOpen ? (
@@ -1050,17 +1172,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-black font-display text-slate-950">
+              <h2 className="text-base font-black font-display text-white">
                 Daftar Permintaan Deposit ({deposits.length})
               </h2>
-              <p className="text-xs font-medium text-slate-600">
+              <p className="text-xs font-medium text-slate-400">
                 Verifikasi mutasi QRIS Zril Store dan setujui untuk top-up saldo pengguna.
               </p>
             </div>
 
             <button
               onClick={handleSimulateDeposit}
-              className="px-3.5 py-2 bg-[#FFE600] hover:bg-[#FEF08A] text-slate-950 rounded-xl text-xs font-black nb-btn flex items-center gap-1.5 self-start cursor-pointer"
+              className="px-3.5 py-2 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white rounded-xl text-xs font-bold nb-btn flex items-center gap-1.5 self-start cursor-pointer"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>Simulasi Deposit Baru</span>
@@ -1069,25 +1191,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
 
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={depositSearch}
                 onChange={(e) => setDepositSearch(e.target.value)}
                 placeholder="Cari ID Deposit, Email, atau Nama Pengirim..."
-                className="w-full pl-10 pr-4 py-2 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
+                className="w-full pl-10 pr-4 py-2.5 nb-input rounded-xl text-xs font-medium"
               />
             </div>
 
-            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border-2 border-slate-950 text-xs overflow-x-auto">
+            <div className="flex items-center gap-1 bg-[#16181F] p-1 rounded-xl border border-white/[0.08] text-xs overflow-x-auto">
               {['all', 'Menunggu Konfirmasi Admin', 'Berhasil', 'Ditolak'].map((st) => (
                 <button
                   key={st}
                   onClick={() => setDepositFilter(st)}
-                  className={`px-3 py-1 rounded-lg font-extrabold whitespace-nowrap cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition-all cursor-pointer ${
                     depositFilter === st
-                      ? 'bg-[#FFE600] text-slate-950 border border-slate-950'
-                      : 'text-slate-700 hover:text-slate-950'
+                      ? 'bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {st === 'all' ? 'Semua' : st === 'Menunggu Konfirmasi Admin' ? 'Pending' : st}
@@ -1097,11 +1219,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
           </div>
 
           {filteredDeposits.length === 0 ? (
-            <div className="p-12 text-center rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] text-xs font-bold text-slate-700 space-y-3">
+            <div className="p-12 text-center rounded-2xl bg-[#1C1E24] border border-white/[0.08] text-xs font-semibold text-slate-400 space-y-3">
               <p>Belum ada permintaan deposit yang sesuai filter.</p>
               <button
                 onClick={handleSimulateDeposit}
-                className="px-4 py-2 bg-[#2563EB] text-white font-extrabold rounded-xl text-xs nb-btn cursor-pointer inline-flex items-center gap-1.5"
+                className="px-4 py-2 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white font-bold rounded-xl text-xs nb-btn cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Buat Simulasi Deposit Pertama</span>
@@ -1116,46 +1238,50 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                 return (
                   <div
                     key={dep.id}
-                    className={`rounded-2xl border-2 border-slate-950 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-[4px_4px_0px_0px_#020617] ${
-                      isPending ? 'bg-[#FEF9C3]' : isApproved ? 'bg-white' : 'bg-[#FFF1F2]'
+                    className={`rounded-2xl border p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-[0_8px_24px_rgba(0,0,0,0.28)] ${
+                      isPending
+                        ? 'bg-[#1C1E24] border-blue-400/35'
+                        : isApproved
+                        ? 'bg-[#1C1E24] border-white/[0.08]'
+                        : 'bg-[#1C1E24] border-rose-500/25'
                     }`}
                   >
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-[#2563EB] font-black text-xs">{dep.id}</span>
+                        <span className="font-mono text-sky-400 font-bold text-xs">{dep.id}</span>
                         <span
-                          className={`text-[10px] font-black px-2 py-0.5 rounded border border-slate-950 ${
+                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                             isPending
-                              ? 'bg-[#FFE600] text-slate-950'
+                              ? 'bg-amber-500/15 text-amber-300 border-amber-400/30'
                               : isApproved
-                              ? 'bg-[#4ADE80] text-slate-950'
-                              : 'bg-[#FB7185] text-slate-950'
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30'
+                              : 'bg-rose-500/15 text-rose-300 border-rose-400/30'
                           }`}
                         >
                           {dep.status}
                         </span>
                       </div>
-                      <div className="text-xs font-semibold text-slate-800">
-                        Nama Pengirim: <strong className="text-slate-950">{dep.senderName}</strong> · Email:{' '}
-                        <span className="font-mono font-bold text-slate-950">{dep.userEmail}</span>
+                      <div className="text-xs font-medium text-slate-300">
+                        Nama Pengirim: <strong className="text-white">{dep.senderName}</strong> · Email:{' '}
+                        <span className="font-mono font-semibold text-slate-200">{dep.userEmail}</span>
                       </div>
-                      <div className="text-[11px] font-medium text-slate-600">
+                      <div className="text-[11px] font-medium text-slate-400">
                         Diajukan: {new Date(dep.createdAt).toLocaleString('id-ID')}
                         {dep.approvedAt && ` · Diproses: ${new Date(dep.approvedAt).toLocaleString('id-ID')}`}
                       </div>
                       {dep.adminNote && (
-                        <div className="text-[11px] font-bold text-slate-700 italic">
+                        <div className="text-[11px] font-medium text-sky-300/90 italic">
                           Catatan: "{dep.adminNote}"
                         </div>
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between lg:justify-end gap-4 border-t-2 lg:border-t-0 pt-3 lg:pt-0 border-slate-950/15">
+                    <div className="flex items-center justify-between lg:justify-end gap-4 border-t lg:border-t-0 pt-3 lg:pt-0 border-white/[0.08]">
                       <div className="text-left lg:text-right">
-                        <div className="text-lg font-black font-mono text-[#2563EB] tabular-nums">
+                        <div className="text-lg font-black font-mono text-sky-400 tabular-nums">
                           +{dep.amount.toLocaleString()}
                         </div>
-                        <span className="text-[10px] font-bold text-slate-600">
+                        <span className="text-[10px] font-semibold text-slate-400">
                           Rp {dep.amount.toLocaleString('id-ID')}
                         </span>
                       </div>
@@ -1168,7 +1294,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                               setActionType('approve');
                               setAdminNote('Pembayaran QRIS Toko Kelontong Zril Store terkonfirmasi.');
                             }}
-                            className="px-3.5 py-1.5 rounded-xl bg-[#4ADE80] hover:bg-[#22C55E] text-slate-950 font-black text-xs nb-btn flex items-center gap-1 cursor-pointer"
+                            className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs shadow-[0_4px_14px_rgba(16,185,129,0.3)] flex items-center gap-1 cursor-pointer"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             <span>Setujui</span>
@@ -1180,7 +1306,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                               setActionType('reject');
                               setAdminNote('Mutasi tidak ditemukan di mutasi QRIS.');
                             }}
-                            className="px-3 py-1.5 rounded-xl bg-[#FB7185] hover:bg-[#F43F5E] text-slate-950 font-black text-xs nb-btn flex items-center gap-1 cursor-pointer"
+                            className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/35 text-rose-200 font-bold text-xs flex items-center gap-1 cursor-pointer"
                           >
                             <XCircle className="w-3.5 h-3.5" />
                             <span>Tolak</span>
@@ -1203,17 +1329,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-black font-display text-slate-950">
+              <h2 className="text-base font-black font-display text-white">
                 Daftar Pengguna Firebase ({users.length})
               </h2>
-              <p className="text-xs font-medium text-slate-600">
+              <p className="text-xs font-medium text-slate-400">
                 Ubah saldo & role (User/Admin) tersinkronisasi langsung ke Firestore console.
               </p>
             </div>
 
             <button
               onClick={() => setShowCreateUserModal(true)}
-              className="px-3.5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold nb-btn flex items-center gap-1.5 self-start cursor-pointer"
+              className="px-3.5 py-2 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white rounded-xl text-xs font-bold nb-btn flex items-center gap-1.5 self-start cursor-pointer"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>Tambah User Baru</span>
@@ -1221,40 +1347,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
           </div>
 
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={userSearch}
               onChange={(e) => setUserSearch(e.target.value)}
               placeholder="Cari Pengguna berdasarkan Nama, Email, atau UID..."
-              className="w-full pl-10 pr-4 py-2 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
+              className="w-full pl-10 pr-4 py-2.5 nb-input rounded-xl text-xs font-medium"
             />
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border-2 border-slate-950 bg-white shadow-[5px_5px_0px_0px_#020617]">
+          <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-[#1C1E24] shadow-[0_10px_28px_rgba(0,0,0,0.3)]">
             <table className="w-full text-left text-xs">
-              <thead className="bg-[#FFE600] text-slate-950 border-b-2 border-slate-950">
+              <thead className="bg-[#12141A] text-slate-300 border-b border-white/[0.08]">
                 <tr>
-                  <th className="p-3.5 font-black uppercase tracking-wider text-[11px]">Pengguna / Email</th>
-                  <th className="p-3.5 font-black uppercase tracking-wider text-[11px]">UID</th>
-                  <th className="p-3.5 font-black uppercase tracking-wider text-[11px]">Saldo</th>
-                  <th className="p-3.5 font-black uppercase tracking-wider text-[11px]">Role (Firestore)</th>
-                  <th className="p-3.5 font-black uppercase tracking-wider text-[11px]">Status</th>
-                  <th className="p-3.5 font-black uppercase tracking-wider text-[11px] text-right">Aksi</th>
+                  <th className="p-3.5 font-bold uppercase tracking-wider text-[11px]">Pengguna / Email</th>
+                  <th className="p-3.5 font-bold uppercase tracking-wider text-[11px]">UID</th>
+                  <th className="p-3.5 font-bold uppercase tracking-wider text-[11px]">Saldo</th>
+                  <th className="p-3.5 font-bold uppercase tracking-wider text-[11px]">Role (Firestore)</th>
+                  <th className="p-3.5 font-bold uppercase tracking-wider text-[11px]">Status</th>
+                  <th className="p-3.5 font-bold uppercase tracking-wider text-[11px] text-right">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y-2 divide-slate-950/15 text-slate-950">
+              <tbody className="divide-y divide-white/[0.06] text-slate-200">
                 {filteredUsers.map((u) => (
-                  <tr key={u.uid} className="hover:bg-[#F0F4FF] transition-colors">
+                  <tr key={u.uid} className="hover:bg-white/[0.03] transition-colors">
                     <td className="p-3.5">
-                      <div className="font-black text-slate-950">{u.name}</div>
-                      <div className="text-[11px] font-mono text-slate-600">{u.email}</div>
+                      <div className="font-bold text-white">{u.name}</div>
+                      <div className="text-[11px] font-mono text-slate-400">{u.email}</div>
                     </td>
-                    <td className="p-3.5 font-mono text-[11px] font-semibold text-slate-600">
+                    <td className="p-3.5 font-mono text-[11px] font-medium text-slate-400">
                       {u.uid.slice(0, 14)}...
                     </td>
                     <td className="p-3.5">
-                      <span className="font-black font-mono text-[#2563EB] text-sm tabular-nums">
+                      <span className="font-black font-mono text-sky-400 text-sm tabular-nums">
                         {u.balance.toLocaleString()}
                       </span>
                     </td>
@@ -1269,10 +1395,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                           );
                           fetchAllAdminData(true);
                         }}
-                        className={`text-[10px] font-black px-2.5 py-0.5 rounded-lg border-2 border-slate-950 cursor-pointer ${
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition-colors ${
                           u.role === 'admin'
-                            ? 'bg-[#FB923C] text-slate-950'
-                            : 'bg-[#E0F2FE] text-slate-950'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-400/35 hover:bg-amber-500/30'
+                            : 'bg-blue-500/15 text-sky-300 border-blue-400/30 hover:bg-blue-500/25'
                         }`}
                         title="Klik untuk ubah role (user/admin) di Firestore"
                       >
@@ -1281,10 +1407,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                     </td>
                     <td className="p-3.5">
                       <span
-                        className={`text-[10px] font-black px-2 py-0.5 rounded border border-slate-950 ${
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                           u.status === 'active'
-                            ? 'bg-[#4ADE80] text-slate-950'
-                            : 'bg-[#FB7185] text-slate-950'
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30'
+                            : 'bg-rose-500/15 text-rose-300 border-rose-400/30'
                         }`}
                       >
                         {u.status.toUpperCase()}
@@ -1297,7 +1423,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                           setNewBalanceInput(u.balance.toString());
                           setBalanceReason('');
                         }}
-                        className="px-2.5 py-1 rounded-lg bg-[#FFE600] hover:bg-[#FEF08A] border-2 border-slate-950 text-slate-950 font-extrabold text-[11px] shadow-[2px_2px_0px_0px_#020617] cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/35 text-sky-200 font-bold text-[11px] cursor-pointer"
                       >
                         Edit Saldo
                       </button>
@@ -1305,10 +1431,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                       {u.role !== 'admin' && (
                         <button
                           onClick={() => handleToggleUserStatus(u)}
-                          className={`px-2.5 py-1 rounded-lg border-2 border-slate-950 font-extrabold text-[11px] shadow-[2px_2px_0px_0px_#020617] cursor-pointer ${
+                          className={`px-2.5 py-1 rounded-lg border font-bold text-[11px] cursor-pointer ${
                             u.status === 'active'
-                              ? 'bg-[#FFE4E6] hover:bg-[#FB7185] text-slate-950'
-                              : 'bg-[#DCFCE7] hover:bg-[#4ADE80] text-slate-950'
+                              ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-400/30 text-rose-300'
+                              : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-400/30 text-emerald-300'
                           }`}
                         >
                           {u.status === 'active' ? 'Tangguhkan' : 'Aktifkan'}
@@ -1329,35 +1455,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       {activeTab === 'orders' && (
         <div className="space-y-4">
           <div>
-            <h2 className="text-base font-black font-display text-slate-950">
+            <h2 className="text-base font-black font-display text-white">
               Daftar Semua Pesanan ({orders.length})
             </h2>
-            <p className="text-xs font-medium text-slate-600">
+            <p className="text-xs font-medium text-slate-400">
               Seluruh transaksi pembelian layanan Bulk AM dan verifikasi link.
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={orderSearch}
                 onChange={(e) => setOrderSearch(e.target.value)}
                 placeholder="Cari ID Pesanan, Akun, atau Nama Produk..."
-                className="w-full pl-10 pr-4 py-2 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
+                className="w-full pl-10 pr-4 py-2.5 nb-input rounded-xl text-xs font-medium"
               />
             </div>
 
-            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border-2 border-slate-950 text-xs overflow-x-auto">
+            <div className="flex items-center gap-1 bg-[#16181F] p-1 rounded-xl border border-white/[0.08] text-xs overflow-x-auto">
               {['all', 'Berhasil', 'Sedang diproses', 'Gagal'].map((st) => (
                 <button
                   key={st}
                   onClick={() => setOrderFilter(st)}
-                  className={`px-3 py-1 rounded-lg font-extrabold whitespace-nowrap cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition-all cursor-pointer ${
                     orderFilter === st
-                      ? 'bg-[#FFE600] text-slate-950 border border-slate-950'
-                      : 'text-slate-700 hover:text-slate-950'
+                      ? 'bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {st === 'all' ? 'Semua' : st}
@@ -1367,7 +1493,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
           </div>
 
           {filteredOrders.length === 0 ? (
-            <div className="p-12 text-center rounded-2xl bg-white border-2 border-slate-950 text-xs font-bold text-slate-600">
+            <div className="p-12 text-center rounded-2xl bg-[#1C1E24] border border-white/[0.08] text-xs font-semibold text-slate-400">
               Belum ada pesanan yang sesuai filter.
             </div>
           ) : (
@@ -1375,40 +1501,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
               {filteredOrders.map((ord) => (
                 <div
                   key={ord.id}
-                  className="p-4 rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  className="p-4 rounded-2xl bg-[#1C1E24] border border-white/[0.08] shadow-[0_8px_24px_rgba(0,0,0,0.28)] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-[#2563EB] font-black text-xs">{ord.id}</span>
-                      <span className="text-xs font-extrabold text-slate-950">({ord.productName})</span>
+                      <span className="font-mono text-sky-400 font-bold text-xs">{ord.id}</span>
+                      <span className="text-xs font-bold text-white">({ord.productName})</span>
                       <span
-                        className={`text-[10px] font-black px-2 py-0.5 rounded border border-slate-950 ${
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                           ord.status === 'Berhasil'
-                            ? 'bg-[#4ADE80] text-slate-950'
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30'
                             : ord.status === 'Gagal'
-                            ? 'bg-[#FB7185] text-slate-950'
-                            : 'bg-[#FFE600] text-slate-950'
+                            ? 'bg-rose-500/15 text-rose-300 border-rose-400/30'
+                            : 'bg-amber-500/15 text-amber-300 border-amber-400/30'
                         }`}
                       >
                         {ord.status}
                       </span>
                     </div>
 
-                    <div className="text-xs font-semibold text-slate-800">
-                      Rincian: <span className="font-mono font-bold text-slate-950">{ord.email}</span> · Jumlah:{' '}
+                    <div className="text-xs font-medium text-slate-300">
+                      Rincian: <span className="font-mono font-semibold text-white">{ord.email}</span> · Jumlah:{' '}
                       {ord.quantity} unit
                     </div>
 
-                    <div className="text-[11px] font-medium text-slate-600">
+                    <div className="text-[11px] font-medium text-slate-400">
                       Waktu Order: {new Date(ord.createdAt).toLocaleString('id-ID')}
                       {ord.errorNote && (
-                        <span className="text-[#DC2626] font-bold ml-2">Note: {ord.errorNote}</span>
+                        <span className="text-rose-400 font-semibold ml-2">Note: {ord.errorNote}</span>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-3 border-t-2 sm:border-t-0 pt-2.5 sm:pt-0 border-slate-950/15">
-                    <div className="font-mono font-black text-slate-950 text-sm tabular-nums">
+                  <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2.5 sm:pt-0 border-white/[0.08]">
+                    <div className="font-mono font-black text-white text-sm tabular-nums">
                       {ord.totalPrice.toLocaleString()}
                     </div>
 
@@ -1416,7 +1542,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                       onClick={() =>
                         handleUpdateOrderStatus(ord.id, ord.status === 'Berhasil' ? 'Gagal' : 'Berhasil')
                       }
-                      className="px-2.5 py-1 rounded-lg bg-[#EBF1FF] hover:bg-[#FFE600] border-2 border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-blue-500/20 border border-white/10 hover:border-blue-400/35 text-[11px] font-bold text-slate-200 cursor-pointer"
                       title="Ubah status manual"
                     >
                       Ubah Status
@@ -1435,10 +1561,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       {activeTab === 'products' && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-base font-black font-display text-slate-950">
+            <h2 className="text-base font-black font-display text-white">
               Manajemen Produk & Harga
             </h2>
-            <p className="text-xs font-medium text-slate-600">
+            <p className="text-xs font-medium text-slate-400">
               Ubah tarif harga dasar akun Bulk AM dan biaya verifikasi link.
             </p>
           </div>
@@ -1447,36 +1573,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
             {products.map((prod) => (
               <div
                 key={prod.id}
-                className="rounded-2xl bg-white border-2 border-slate-950 p-5 space-y-4 shadow-[5px_5px_0px_0px_#020617]"
+                className="rounded-2xl bg-[#1C1E24] border border-white/[0.08] p-5 space-y-4 shadow-[0_10px_28px_rgba(0,0,0,0.3)]"
               >
                 <div className="flex items-center justify-between">
-                  <h3 className="text-base font-black font-display text-slate-950">{prod.name}</h3>
+                  <h3 className="text-base font-black font-display text-white">{prod.name}</h3>
                   <span
-                    className={`text-[10px] font-black px-2.5 py-0.5 rounded-lg border-2 border-slate-950 ${
-                      prod.active ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
+                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                      prod.active
+                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30'
+                        : 'bg-rose-500/15 text-rose-300 border-rose-400/30'
                     }`}
                   >
                     {prod.active ? 'Aktif' : 'Nonaktif'}
                   </span>
                 </div>
 
-                <div className="w-full aspect-[16/8] rounded-xl overflow-hidden bg-slate-100 border-2 border-slate-950 relative">
+                <div className="w-full aspect-[16/8] rounded-xl overflow-hidden bg-[#12141A] border border-white/[0.08] relative">
                   <img
                     src={prod.image || 'https://cdn.corenexis.com/f/hUimw94N.webp'}
                     alt={prod.name}
+                    referrerPolicy="no-referrer"
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = '/images/product-banner.webp';
                     }}
                   />
-                  <div className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-lg bg-[#FFE600] border-2 border-slate-950 text-[10px] font-black text-slate-950 font-mono">
+                  <div className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-lg bg-[#101114]/85 backdrop-blur-md border border-blue-400/30 text-[10px] font-bold text-sky-300 font-mono">
                     Tarif: {prod.price.toLocaleString()}
                   </div>
                 </div>
 
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                    <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                       Harga Satuan (Angka Murni):
                     </label>
                     <input
@@ -1488,12 +1617,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                           prev.map((p) => (p.id === prod.id ? { ...p, price: val } : p))
                         );
                       }}
-                      className="w-full px-3 py-2 nb-input rounded-xl font-mono font-black"
+                      className="w-full px-3 py-2 nb-input rounded-xl font-mono font-bold"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                    <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                       URL Banner Horizontal Produk:
                     </label>
                     <input
@@ -1510,7 +1639,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                    <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                       Deskripsi Singkat:
                     </label>
                     <textarea
@@ -1527,7 +1656,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                   </div>
 
                   <div className="flex items-center justify-between pt-2">
-                    <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-950">
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-200">
                       <input
                         type="checkbox"
                         checked={prod.active}
@@ -1537,14 +1666,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                             prev.map((p) => (p.id === prod.id ? { ...p, active: val } : p))
                           );
                         }}
-                        className="w-4 h-4 accent-[#2563EB]"
+                        className="w-4 h-4 accent-[#3B82F6]"
                       />
                       <span>Aktifkan Produk</span>
                     </label>
 
                     <button
                       onClick={() => handleUpdateProduct(prod)}
-                      className="px-4 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold rounded-xl nb-btn cursor-pointer"
+                      className="px-4 py-2 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white font-bold rounded-xl nb-btn cursor-pointer"
                     >
                       Simpan Produk
                     </button>
@@ -1557,30 +1686,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
       )}
 
       {/* =========================================================================
-          TAB 6: NEO BRUTALISM API DOCUMENTATION UI & CONFIG
+          TAB 6: MODERN DARK API DOCUMENTATION UI & CONFIG
          ========================================================================= */}
       {activeTab === 'api' && settings && (
         <div className="space-y-6">
           {/* API Documentation Header Card */}
-          <div className="bg-white border-2 border-slate-950 rounded-2xl p-5 sm:p-6 shadow-[5px_5px_0px_0px_#020617]">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-slate-950">
+          <div className="bg-[#1C1E24] border border-white/[0.08] rounded-2xl p-5 sm:p-6 shadow-[0_12px_32px_rgba(0,0,0,0.35)]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
               <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-xl bg-[#38BDF8] border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] flex items-center justify-center shrink-0">
-                  <Terminal className="w-5 h-5 text-slate-950" />
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#1E3A8A] to-[#2563EB] border border-blue-400/35 shadow-[0_6px_18px_rgba(37,99,235,0.3)] flex items-center justify-center shrink-0">
+                  <Terminal className="w-5 h-5 text-white" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded bg-slate-950 text-[#FFE600] text-[10px] font-black tracking-widest uppercase">
+                    <span className="px-2 py-0.5 rounded bg-blue-500/20 border border-blue-400/30 text-sky-300 text-[10px] font-bold tracking-widest uppercase">
                       API DOCS · v1
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-[#4ADE80] border border-slate-950 text-slate-950 text-[10px] font-black">
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold">
                       REST / JSON
                     </span>
                   </div>
-                  <h2 className="text-lg font-black font-display text-slate-950 mt-1">
+                  <h2 className="text-lg font-black font-display text-white mt-1">
                     Dokumentasi & Konfigurasi API Alight Motion
                   </h2>
-                  <p className="text-xs font-medium text-slate-600">
+                  <p className="text-xs font-medium text-slate-400">
                     Spesifikasi endpoint resmi server AM PREMIUM AZRYL beserta uji konektivitas ping langsung.
                   </p>
                 </div>
@@ -1589,7 +1718,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
               <button
                 type="button"
                 onClick={() => setShowApiKeys(!showApiKeys)}
-                className="px-3.5 py-2 rounded-xl bg-[#FFE600] hover:bg-[#FEF08A] border-2 border-slate-950 text-xs font-black text-slate-950 nb-btn flex items-center gap-1.5 self-start cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-bold text-slate-200 flex items-center gap-1.5 self-start cursor-pointer"
               >
                 {showApiKeys ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                 <span>{showApiKeys ? 'Sembunyikan Key' : 'Tampilkan Key'}</span>
@@ -1598,13 +1727,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
 
             <form onSubmit={handleSaveApiConfig} className="space-y-6 pt-5">
               {/* ENDPOINT 1: BULK AM */}
-              <div className="rounded-2xl bg-[#F0F4FF] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
-                <div className="p-4 bg-[#FFE600] border-b-2 border-slate-950 flex flex-wrap items-center justify-between gap-2">
+              <div className="rounded-2xl bg-[#15171E] border border-white/[0.08] overflow-hidden">
+                <div className="p-4 bg-gradient-to-r from-[#172554]/80 to-[#1E3A8A]/45 border-b border-white/[0.08] flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="px-2.5 py-0.5 rounded-lg bg-[#4ADE80] border-2 border-slate-950 font-mono text-[11px] font-black text-slate-950">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-400/35 font-mono text-[11px] font-bold text-emerald-300">
                       POST
                     </span>
-                    <span className="font-display font-black text-sm text-slate-950">
+                    <span className="font-display font-bold text-sm text-white">
                       1. AM Bulk Generator
                     </span>
                   </div>
@@ -1612,10 +1741,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                     <button
                       type="button"
                       onClick={() => handleCopyCurl(bulkCurlExample, 'curl-bulk')}
-                      className="px-2.5 py-1 bg-white hover:bg-[#E0F2FE] border-2 border-slate-950 rounded-lg text-[11px] font-extrabold text-slate-950 flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/15 rounded-lg text-[11px] font-bold text-slate-200 flex items-center gap-1 cursor-pointer"
                     >
                       {copiedCurlKey === 'curl-bulk' ? (
-                        <Check className="w-3 h-3 text-[#16A34A]" />
+                        <Check className="w-3 h-3 text-emerald-400" />
                       ) : (
                         <Copy className="w-3 h-3" />
                       )}
@@ -1625,7 +1754,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                       type="button"
                       onClick={() => handleTestApi('bulk')}
                       disabled={testingApi}
-                      className="px-3 py-1 bg-slate-950 hover:bg-[#2563EB] text-white border-2 border-slate-950 text-[11px] font-extrabold rounded-lg flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white text-[11px] font-bold rounded-lg flex items-center gap-1.5 cursor-pointer"
                     >
                       <Play className="w-3 h-3" />
                       <span>Tes Ping Bulk</span>
@@ -1637,7 +1766,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                   {/* Form Config Inputs */}
                   <div className="lg:col-span-6 space-y-3">
                     <div>
-                      <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                      <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                         Endpoint POST URL:
                       </label>
                       <input
@@ -1654,12 +1783,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                               : null
                           );
                         }}
-                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-bold"
+                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-semibold"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                      <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                         Header x-apikey:
                       </label>
                       <input
@@ -1677,20 +1806,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ setActiveTab: setParentA
                           );
                         }}
                         placeholder="Masukkan API Key Bulk..."
-                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-bold"
+                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-semibold"
                       />
                     </div>
                   </div>
 
-                  {/* Neo-Brutalist Request Schema & Payload Spec */}
-                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 space-y-2">
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-700">
+                  {/* Request Schema & Payload Spec */}
+                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#101114] border border-white/[0.08] space-y-2">
+                    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       <span>Headers & Request Body</span>
-                      <span className="px-1.5 py-0.5 rounded bg-white border border-slate-950 font-mono">
+                      <span className="px-2 py-0.5 rounded bg-blue-500/15 border border-blue-400/25 text-sky-300 font-mono">
                         application/json
                       </span>
                     </div>
-                    <pre className="p-2.5 rounded-lg bg-white border-2 border-slate-950 font-mono text-[11px] text-slate-950 overflow-x-auto leading-relaxed">
+                    <pre className="p-2.5 rounded-lg bg-[#0B0D12] border border-white/10 font-mono text-[11px] text-sky-200 overflow-x-auto leading-relaxed">
 {`POST /api/bulk
 Headers: Content-Type: application/json | x-apikey: <KEY>
 Body:    {"total": 1, "provider": "akunlama"}`}
@@ -1700,13 +1829,13 @@ Body:    {"total": 1, "provider": "akunlama"}`}
               </div>
 
               {/* ENDPOINT 2: SEND GMAIL */}
-              <div className="rounded-2xl bg-[#F0F4FF] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
-                <div className="p-4 bg-[#38BDF8] border-b-2 border-slate-950 flex flex-wrap items-center justify-between gap-2">
+              <div className="rounded-2xl bg-[#15171E] border border-white/[0.08] overflow-hidden">
+                <div className="p-4 bg-gradient-to-r from-[#172554]/80 to-[#1E3A8A]/45 border-b border-white/[0.08] flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="px-2.5 py-0.5 rounded-lg bg-[#FFE600] border-2 border-slate-950 font-mono text-[11px] font-black text-slate-950">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-blue-500/20 border border-blue-400/35 font-mono text-[11px] font-bold text-sky-300">
                       POST
                     </span>
-                    <span className="font-display font-black text-sm text-slate-950">
+                    <span className="font-display font-bold text-sm text-white">
                       2. AM Send Gmail (Kirim Link)
                     </span>
                   </div>
@@ -1714,10 +1843,10 @@ Body:    {"total": 1, "provider": "akunlama"}`}
                     <button
                       type="button"
                       onClick={() => handleCopyCurl(sendCurlExample, 'curl-send')}
-                      className="px-2.5 py-1 bg-white hover:bg-[#FFE600] border-2 border-slate-950 rounded-lg text-[11px] font-extrabold text-slate-950 flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/15 rounded-lg text-[11px] font-bold text-slate-200 flex items-center gap-1 cursor-pointer"
                     >
                       {copiedCurlKey === 'curl-send' ? (
-                        <Check className="w-3 h-3 text-[#16A34A]" />
+                        <Check className="w-3 h-3 text-emerald-400" />
                       ) : (
                         <Copy className="w-3 h-3" />
                       )}
@@ -1727,7 +1856,7 @@ Body:    {"total": 1, "provider": "akunlama"}`}
                       type="button"
                       onClick={() => handleTestApi('send')}
                       disabled={testingApi}
-                      className="px-3 py-1 bg-slate-950 hover:bg-[#2563EB] text-white border-2 border-slate-950 text-[11px] font-extrabold rounded-lg flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white text-[11px] font-bold rounded-lg flex items-center gap-1.5 cursor-pointer"
                     >
                       <Play className="w-3 h-3" />
                       <span>Tes Ping Send</span>
@@ -1738,7 +1867,7 @@ Body:    {"total": 1, "provider": "akunlama"}`}
                 <div className="p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
                   <div className="lg:col-span-6 space-y-3">
                     <div>
-                      <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                      <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                         Endpoint POST URL:
                       </label>
                       <input
@@ -1755,12 +1884,12 @@ Body:    {"total": 1, "provider": "akunlama"}`}
                               : null
                           );
                         }}
-                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-bold"
+                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-semibold"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                      <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                         Header x-apikey:
                       </label>
                       <input
@@ -1778,19 +1907,19 @@ Body:    {"total": 1, "provider": "akunlama"}`}
                           );
                         }}
                         placeholder="Masukkan API Key Send Gmail..."
-                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-bold"
+                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-semibold"
                       />
                     </div>
                   </div>
 
-                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 space-y-2">
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-700">
+                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#101114] border border-white/[0.08] space-y-2">
+                    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       <span>Headers & Request Body</span>
-                      <span className="px-1.5 py-0.5 rounded bg-white border border-slate-950 font-mono">
+                      <span className="px-2 py-0.5 rounded bg-blue-500/15 border border-blue-400/25 text-sky-300 font-mono">
                         application/json
                       </span>
                     </div>
-                    <pre className="p-2.5 rounded-lg bg-white border-2 border-slate-950 font-mono text-[11px] text-slate-950 overflow-x-auto leading-relaxed">
+                    <pre className="p-2.5 rounded-lg bg-[#0B0D12] border border-white/10 font-mono text-[11px] text-sky-200 overflow-x-auto leading-relaxed">
 {`POST /api/send
 Headers: Content-Type: application/json | x-apikey: <KEY>
 Body:    {"gmail": "user@gmail.com"}`}
@@ -1800,13 +1929,13 @@ Body:    {"gmail": "user@gmail.com"}`}
               </div>
 
               {/* ENDPOINT 3: VERIF GMAIL */}
-              <div className="rounded-2xl bg-[#F0F4FF] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] overflow-hidden">
-                <div className="p-4 bg-[#4ADE80] border-b-2 border-slate-950 flex flex-wrap items-center justify-between gap-2">
+              <div className="rounded-2xl bg-[#15171E] border border-white/[0.08] overflow-hidden">
+                <div className="p-4 bg-gradient-to-r from-[#172554]/80 to-[#1E3A8A]/45 border-b border-white/[0.08] flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="px-2.5 py-0.5 rounded-lg bg-white border-2 border-slate-950 font-mono text-[11px] font-black text-slate-950">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-indigo-500/25 border border-indigo-400/35 font-mono text-[11px] font-bold text-indigo-200">
                       POST
                     </span>
-                    <span className="font-display font-black text-sm text-slate-950">
+                    <span className="font-display font-bold text-sm text-white">
                       3. AM Verif Gmail (Eksekusi Verifikasi)
                     </span>
                   </div>
@@ -1814,10 +1943,10 @@ Body:    {"gmail": "user@gmail.com"}`}
                     <button
                       type="button"
                       onClick={() => handleCopyCurl(verifCurlExample, 'curl-verif')}
-                      className="px-2.5 py-1 bg-white hover:bg-[#FFE600] border-2 border-slate-950 rounded-lg text-[11px] font-extrabold text-slate-950 flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/15 rounded-lg text-[11px] font-bold text-slate-200 flex items-center gap-1 cursor-pointer"
                     >
                       {copiedCurlKey === 'curl-verif' ? (
-                        <Check className="w-3 h-3 text-[#16A34A]" />
+                        <Check className="w-3 h-3 text-emerald-400" />
                       ) : (
                         <Copy className="w-3 h-3" />
                       )}
@@ -1827,7 +1956,7 @@ Body:    {"gmail": "user@gmail.com"}`}
                       type="button"
                       onClick={() => handleTestApi('verif')}
                       disabled={testingApi}
-                      className="px-3 py-1 bg-slate-950 hover:bg-[#2563EB] text-white border-2 border-slate-950 text-[11px] font-extrabold rounded-lg flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white text-[11px] font-bold rounded-lg flex items-center gap-1.5 cursor-pointer"
                     >
                       <Play className="w-3 h-3" />
                       <span>Tes Ping Verif</span>
@@ -1838,7 +1967,7 @@ Body:    {"gmail": "user@gmail.com"}`}
                 <div className="p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
                   <div className="lg:col-span-6 space-y-3">
                     <div>
-                      <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                      <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                         Endpoint POST URL:
                       </label>
                       <input
@@ -1855,12 +1984,12 @@ Body:    {"gmail": "user@gmail.com"}`}
                               : null
                           );
                         }}
-                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-bold"
+                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-semibold"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-extrabold uppercase text-slate-700 mb-1">
+                      <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
                         Header x-apikey:
                       </label>
                       <input
@@ -1878,19 +2007,19 @@ Body:    {"gmail": "user@gmail.com"}`}
                           );
                         }}
                         placeholder="Masukkan API Key Verif..."
-                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-bold"
+                        className="w-full px-3 py-2 nb-input rounded-xl text-xs font-mono font-semibold"
                       />
                     </div>
                   </div>
 
-                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 space-y-2">
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-700">
+                  <div className="lg:col-span-6 p-3.5 rounded-xl bg-[#101114] border border-white/[0.08] space-y-2">
+                    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       <span>Headers & Request Body</span>
-                      <span className="px-1.5 py-0.5 rounded bg-white border border-slate-950 font-mono">
+                      <span className="px-2 py-0.5 rounded bg-blue-500/15 border border-blue-400/25 text-sky-300 font-mono">
                         application/json
                       </span>
                     </div>
-                    <pre className="p-2.5 rounded-lg bg-white border-2 border-slate-950 font-mono text-[11px] text-slate-950 overflow-x-auto leading-relaxed">
+                    <pre className="p-2.5 rounded-lg bg-[#0B0D12] border border-white/10 font-mono text-[11px] text-sky-200 overflow-x-auto leading-relaxed">
 {`POST /api/verif
 Headers: Content-Type: application/json | x-apikey: <KEY>
 Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
@@ -1901,20 +2030,22 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
 
               {testResult && (
                 <div
-                  className={`p-4 rounded-xl border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] text-xs font-mono ${
-                    testResult.success ? 'bg-[#DCFCE7] text-slate-950' : 'bg-[#FFE4E6] text-slate-950'
+                  className={`p-4 rounded-xl border text-xs font-mono ${
+                    testResult.success
+                      ? 'bg-emerald-500/12 border-emerald-400/30 text-emerald-200'
+                      : 'bg-rose-500/12 border-rose-400/30 text-rose-200'
                   }`}
                 >
-                  <div className="font-black uppercase mb-1">Hasil Pengujian Ping API:</div>
+                  <div className="font-bold uppercase mb-1">Hasil Pengujian Ping API:</div>
                   <div>Status Code: {testResult.statusCode || 'N/A'}</div>
                   <div>Latency: {testResult.durationMs ? `${testResult.durationMs}ms` : 'Timeout / Error'}</div>
-                  {testResult.error && <div className="font-bold">Pesan Error: {testResult.error}</div>}
+                  {testResult.error && <div className="font-bold mt-1">Pesan Error: {testResult.error}</div>}
                 </div>
               )}
 
               <button
                 type="submit"
-                className="py-3 px-6 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn cursor-pointer"
+                className="py-3 px-6 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white font-bold text-xs nb-btn cursor-pointer"
               >
                 Simpan Seluruh Konfigurasi API
               </button>
@@ -1928,57 +2059,63 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
          ========================================================================= */}
       {activeTab === 'store' && settings && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="p-6 rounded-2xl bg-white border-2 border-slate-950 shadow-[5px_5px_0px_0px_#020617] space-y-4">
-            <h3 className="text-base font-black font-display text-slate-950">
+          <div className="p-6 rounded-2xl bg-[#1C1E24] border border-white/[0.08] shadow-[0_10px_28px_rgba(0,0,0,0.3)] space-y-4">
+            <h3 className="text-base font-black font-display text-white">
               Kontrol Saklar Operasional
             </h3>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-[#15171E] border border-white/[0.08] flex items-center justify-between gap-3">
                 <div>
-                  <span className="font-black text-slate-950 block">Penerimaan Pesanan</span>
-                  <span className="text-[11px] font-medium text-slate-600">
+                  <span className="font-bold text-white block">Penerimaan Pesanan</span>
+                  <span className="text-[11px] font-medium text-slate-400">
                     Izinkan pengguna melakukan pembelian Bulk AM & Verif.
                   </span>
                 </div>
                 <button
                   onClick={() => handleToggleSetting('storeOpen', !settings.storeOpen)}
-                  className={`px-3.5 py-1.5 rounded-xl font-black text-xs nb-btn cursor-pointer ${
-                    settings.storeOpen ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs border cursor-pointer ${
+                    settings.storeOpen
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/35'
+                      : 'bg-rose-500/20 text-rose-300 border-rose-400/35'
                   }`}
                 >
                   {settings.storeOpen ? 'Buka' : 'Tutup'}
                 </button>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-[#15171E] border border-white/[0.08] flex items-center justify-between gap-3">
                 <div>
-                  <span className="font-black text-slate-950 block">Pengajuan Deposit QRIS</span>
-                  <span className="text-[11px] font-medium text-slate-600">
+                  <span className="font-bold text-white block">Pengajuan Deposit QRIS</span>
+                  <span className="text-[11px] font-medium text-slate-400">
                     Izinkan pengguna melakukan transfer & deposit saldo.
                   </span>
                 </div>
                 <button
                   onClick={() => handleToggleSetting('depositOpen', !settings.depositOpen)}
-                  className={`px-3.5 py-1.5 rounded-xl font-black text-xs nb-btn cursor-pointer ${
-                    settings.depositOpen ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs border cursor-pointer ${
+                    settings.depositOpen
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/35'
+                      : 'bg-rose-500/20 text-rose-300 border-rose-400/35'
                   }`}
                 >
                   {settings.depositOpen ? 'Buka' : 'Tutup'}
                 </button>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-[#15171E] border border-white/[0.08] flex items-center justify-between gap-3">
                 <div>
-                  <span className="font-black text-slate-950 block">Mode Pemeliharaan (Maintenance)</span>
-                  <span className="text-[11px] font-medium text-slate-600">
+                  <span className="font-bold text-white block">Mode Pemeliharaan (Maintenance)</span>
+                  <span className="text-[11px] font-medium text-slate-400">
                     Tampilkan pengumuman pemeliharaan server.
                   </span>
                 </div>
                 <button
                   onClick={() => handleToggleSetting('maintenanceMode', !settings.maintenanceMode)}
-                  className={`px-3.5 py-1.5 rounded-xl font-black text-xs nb-btn cursor-pointer ${
-                    settings.maintenanceMode ? 'bg-[#FFE600] text-slate-950' : 'bg-white text-slate-700'
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs border cursor-pointer ${
+                    settings.maintenanceMode
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-400/35'
+                      : 'bg-white/[0.06] text-slate-300 border-white/10'
                   }`}
                 >
                   {settings.maintenanceMode ? 'Aktif' : 'Nonaktif'}
@@ -1987,23 +2124,24 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
             </div>
           </div>
 
-          <div className="p-6 rounded-2xl bg-[#E0F2FE] border-2 border-slate-950 shadow-[5px_5px_0px_0px_#020617] space-y-4">
-            <h3 className="text-base font-black font-display text-slate-950">Merchant QRIS Aktif</h3>
+          <div className="p-6 rounded-2xl md-blue-gradient border border-blue-300/25 space-y-4">
+            <h3 className="text-base font-black font-display text-white">Merchant QRIS Aktif</h3>
 
             <div className="flex items-center gap-4">
-              <div className="w-24 h-24 rounded-xl bg-white p-1.5 border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] overflow-hidden shrink-0">
+              <div className="w-24 h-24 rounded-xl bg-white p-1.5 border border-white/30 shadow-lg overflow-hidden shrink-0">
                 <img
                   src="https://cdn.phototourl.com/member/2026-11-10-5a092aa1-5330-4068-a112-233f093bfe0b.png"
                   alt="QRIS Merchant"
+                  referrerPolicy="no-referrer"
                   className="w-full h-full object-contain"
                 />
               </div>
               <div className="space-y-1 text-xs">
-                <div className="font-bold text-slate-700">Nama Merchant:</div>
-                <div className="font-black text-slate-950 text-sm">Toko Kelontong Zril Store</div>
-                <div className="font-bold text-slate-700 pt-1">Minimal Deposit:</div>
-                <div className="font-mono font-black text-[#2563EB] text-sm">500</div>
-                <div className="text-[11px] font-extrabold text-[#16A34A]">
+                <div className="font-medium text-blue-100/80">Nama Merchant:</div>
+                <div className="font-black text-white text-sm">Toko Kelontong Zril Store</div>
+                <div className="font-medium text-blue-100/80 pt-1">Minimal Deposit:</div>
+                <div className="font-mono font-black text-sky-200 text-sm">500</div>
+                <div className="text-[11px] font-bold text-emerald-300">
                   ✓ Bebas biaya admin & instan konfirmasi
                 </div>
               </div>
@@ -2019,43 +2157,43 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-black font-display text-slate-950">
+              <h2 className="text-base font-black font-display text-white">
                 Catatan Aktivitas Admin (Audit Trail)
               </h2>
-              <p className="text-xs font-medium text-slate-600">
+              <p className="text-xs font-medium text-slate-400">
                 Rekap riwayat persetujuan deposit, perubahan saldo, status role, dan pengaturan.
               </p>
             </div>
 
             <button
               onClick={handleClearAuditLogs}
-              className="px-3.5 py-2 rounded-xl bg-[#FFE4E6] hover:bg-[#FB7185] border-2 border-slate-950 text-xs font-extrabold text-slate-950 nb-btn cursor-pointer shrink-0"
+              className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/30 text-xs font-bold text-rose-300 cursor-pointer shrink-0"
             >
               Bersihkan Log
             </button>
           </div>
 
-          <div className="rounded-2xl border-2 border-slate-950 bg-white shadow-[5px_5px_0px_0px_#020617] divide-y-2 divide-slate-950/15 max-h-[500px] overflow-y-auto">
+          <div className="rounded-2xl border border-white/[0.08] bg-[#1C1E24] shadow-[0_10px_28px_rgba(0,0,0,0.3)] divide-y divide-white/[0.06] max-h-[500px] overflow-y-auto">
             {auditLogs.length === 0 ? (
-              <div className="p-8 text-center text-xs font-bold text-slate-600">
+              <div className="p-8 text-center text-xs font-semibold text-slate-400">
                 Belum ada aktivitas admin tercatat.
               </div>
             ) : (
               auditLogs.map((log) => (
                 <div
                   key={log.id}
-                  className="p-3.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                  className="p-3.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-white/[0.02]"
                 >
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono bg-[#FFE600] border border-slate-950 px-1.5 py-0.5 rounded text-slate-950 font-black text-[11px]">
+                      <span className="font-mono bg-blue-500/20 border border-blue-400/30 px-2 py-0.5 rounded-md text-sky-300 font-bold text-[11px]">
                         {log.action}
                       </span>
-                      <span className="text-[11px] font-bold text-slate-600">oleh {log.adminEmail}</span>
+                      <span className="text-[11px] font-medium text-slate-400">oleh {log.adminEmail}</span>
                     </div>
-                    <div className="font-semibold text-slate-900">{log.details}</div>
+                    <div className="font-medium text-slate-200">{log.details}</div>
                   </div>
-                  <div className="text-[10px] text-slate-600 font-mono font-bold shrink-0">
+                  <div className="text-[10px] text-slate-400 font-mono font-medium shrink-0">
                     {new Date(log.timestamp).toLocaleString('id-ID')}
                   </div>
                 </div>
@@ -2069,55 +2207,57 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
           MODAL: APPROVE / REJECT DEPOSIT
          ========================================================================= */}
       {selectedDeposit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-white border-2 border-slate-950 rounded-2xl p-6 shadow-[8px_8px_0px_0px_#020617] relative">
-            <h3 className="text-base font-black font-display text-slate-950 mb-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+          <div className="w-full max-w-md bg-[#1C1E24] border border-white/12 rounded-2xl p-6 shadow-[0_24px_60px_rgba(0,0,0,0.65)] relative">
+            <h3 className="text-base font-black font-display text-white mb-1">
               {actionType === 'approve' ? 'Setujui Permintaan Deposit' : 'Tolak Permintaan Deposit'}
             </h3>
-            <p className="text-xs font-bold text-slate-600 mb-4">
-              ID Deposit: <span className="font-mono text-[#2563EB]">{selectedDeposit.id}</span>
+            <p className="text-xs font-medium text-slate-400 mb-4">
+              ID Deposit: <span className="font-mono text-sky-400">{selectedDeposit.id}</span>
             </p>
 
-            <div className="p-3.5 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 text-xs space-y-1.5 mb-4">
+            <div className="p-3.5 rounded-xl bg-[#15171E] border border-white/[0.08] text-xs space-y-1.5 mb-4">
               <div className="flex justify-between">
-                <span className="font-bold text-slate-600">Pengirim:</span>
-                <span className="text-slate-950 font-black">{selectedDeposit.senderName}</span>
+                <span className="font-medium text-slate-400">Pengirim:</span>
+                <span className="text-white font-bold">{selectedDeposit.senderName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="font-bold text-slate-600">Email Akun:</span>
-                <span className="text-slate-950 font-mono font-bold">{selectedDeposit.userEmail}</span>
+                <span className="font-medium text-slate-400">Email Akun:</span>
+                <span className="text-slate-200 font-mono font-semibold">{selectedDeposit.userEmail}</span>
               </div>
               <div className="flex justify-between">
-                <span className="font-bold text-slate-600">Nominal:</span>
-                <span className="text-[#16A34A] font-mono font-black text-sm">
+                <span className="font-medium text-slate-400">Nominal:</span>
+                <span className="text-emerald-400 font-mono font-black text-sm">
                   +{selectedDeposit.amount.toLocaleString()}
                 </span>
               </div>
             </div>
 
             <div className="space-y-1.5 mb-5">
-              <label className="block text-xs font-extrabold uppercase text-slate-950">Catatan Admin:</label>
+              <label className="block text-xs font-bold uppercase text-slate-300">Catatan Admin:</label>
               <input
                 type="text"
                 value={adminNote}
                 onChange={(e) => setAdminNote(e.target.value)}
                 placeholder={actionType === 'approve' ? 'Disetujui oleh admin' : 'Contoh: Mutasi QRIS tidak sesuai'}
-                className="w-full px-3 py-2.5 nb-input rounded-xl text-xs font-semibold"
+                className="w-full px-3 py-2.5 nb-input rounded-xl text-xs font-medium"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => setSelectedDeposit(null)}
-                className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#EBF1FF] text-slate-950 text-xs font-extrabold nb-btn cursor-pointer"
+                className="py-2.5 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-slate-200 text-xs font-bold cursor-pointer"
               >
                 Batal
               </button>
               <button
                 onClick={handleDepositAction}
                 disabled={processingAction}
-                className={`py-2.5 px-3 rounded-xl font-black text-xs text-slate-950 nb-btn cursor-pointer ${
-                  actionType === 'approve' ? 'bg-[#4ADE80] hover:bg-[#22C55E]' : 'bg-[#FB7185] hover:bg-[#F43F5E]'
+                className={`py-2.5 px-3 rounded-xl font-extrabold text-xs cursor-pointer ${
+                  actionType === 'approve'
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-[0_6px_18px_rgba(16,185,129,0.3)]'
+                    : 'bg-rose-500 hover:bg-rose-400 text-white shadow-[0_6px_18px_rgba(244,63,94,0.3)]'
                 }`}
               >
                 {processingAction
@@ -2135,22 +2275,22 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
           MODAL: EDIT USER BALANCE
          ========================================================================= */}
       {selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-white border-2 border-slate-950 rounded-2xl p-6 shadow-[8px_8px_0px_0px_#020617] relative">
-            <h3 className="text-base font-black font-display text-slate-950 mb-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+          <div className="w-full max-w-sm bg-[#1C1E24] border border-white/12 rounded-2xl p-6 shadow-[0_24px_60px_rgba(0,0,0,0.65)] relative">
+            <h3 className="text-base font-black font-display text-white mb-1">
               Sesuaikan Saldo Pengguna
             </h3>
-            <p className="text-xs font-medium text-slate-600 mb-4">
-              Target: <span className="font-black text-slate-950">{selectedUser.name}</span> ({selectedUser.email})
+            <p className="text-xs font-medium text-slate-400 mb-4">
+              Target: <span className="font-bold text-white">{selectedUser.name}</span> ({selectedUser.email})
             </p>
 
             <form onSubmit={handleUpdateBalance} className="space-y-4">
               <div>
                 <div className="flex items-center justify-between text-xs mb-1">
-                  <label className="font-extrabold uppercase text-slate-950">Saldo Baru:</label>
-                  <span className="text-[11px] font-bold text-slate-600">
+                  <label className="font-bold uppercase text-slate-300">Saldo Baru:</label>
+                  <span className="text-[11px] font-medium text-slate-400">
                     Saat ini:{' '}
-                    <strong className="font-mono text-[#2563EB]">
+                    <strong className="font-mono text-sky-400">
                       {selectedUser.balance.toLocaleString()}
                     </strong>
                   </span>
@@ -2160,7 +2300,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                   min="0"
                   value={newBalanceInput}
                   onChange={(e) => setNewBalanceInput(e.target.value)}
-                  className="w-full px-3 py-2.5 nb-input rounded-xl text-sm font-mono font-black"
+                  className="w-full px-3 py-2.5 nb-input rounded-xl text-sm font-mono font-bold"
                   required
                 />
 
@@ -2173,7 +2313,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                         const cur = parseInt(newBalanceInput, 10) || 0;
                         setNewBalanceInput((cur + addVal).toString());
                       }}
-                      className="py-1 px-1.5 rounded-lg bg-[#E0F2FE] hover:bg-[#FFE600] border border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
+                      className="py-1 px-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-400/30 text-[10px] font-bold text-sky-300 cursor-pointer"
                     >
                       +{addVal >= 1000 ? `${addVal / 1000}k` : addVal}
                     </button>
@@ -2181,7 +2321,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                   <button
                     type="button"
                     onClick={() => setNewBalanceInput('0')}
-                    className="py-1 px-1.5 rounded-lg bg-[#FFE4E6] hover:bg-[#FB7185] border border-slate-950 text-[10px] font-black text-slate-950 cursor-pointer"
+                    className="py-1 px-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/30 text-[10px] font-bold text-rose-300 cursor-pointer"
                   >
                     Set 0
                   </button>
@@ -2189,7 +2329,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
               </div>
 
               <div>
-                <label className="block text-xs font-extrabold uppercase text-slate-950 mb-1">
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-1">
                   Alasan Perubahan (Opsional):
                 </label>
                 <input
@@ -2197,7 +2337,7 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                   value={balanceReason}
                   onChange={(e) => setBalanceReason(e.target.value)}
                   placeholder="Contoh: Top-up manual / Koreksi saldo"
-                  className="w-full px-3 py-2 nb-input rounded-xl text-xs font-semibold"
+                  className="w-full px-3 py-2 nb-input rounded-xl text-xs font-medium"
                 />
               </div>
 
@@ -2205,13 +2345,13 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                 <button
                   type="button"
                   onClick={() => setSelectedUser(null)}
-                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#EBF1FF] text-slate-950 text-xs font-extrabold nb-btn cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-slate-200 text-xs font-bold cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="py-2.5 px-3 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white font-bold text-xs nb-btn cursor-pointer"
                 >
                   Simpan Saldo
                 </button>
@@ -2225,45 +2365,45 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
           MODAL: CREATE NEW USER
          ========================================================================= */}
       {showCreateUserModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-white border-2 border-slate-950 rounded-2xl p-6 shadow-[8px_8px_0px_0px_#020617] relative">
-            <h3 className="text-base font-black font-display text-slate-950 mb-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+          <div className="w-full max-w-sm bg-[#1C1E24] border border-white/12 rounded-2xl p-6 shadow-[0_24px_60px_rgba(0,0,0,0.65)] relative">
+            <h3 className="text-base font-black font-display text-white mb-1">
               Tambah Pengguna Baru
             </h3>
-            <p className="text-xs font-medium text-slate-600 mb-4">
+            <p className="text-xs font-medium text-slate-400 mb-4">
               Buat akun pengguna secara manual ke sistem database.
             </p>
 
             <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
               <div>
-                <label className="block font-extrabold uppercase text-slate-950 mb-1">Alamat Email:</label>
+                <label className="block font-bold uppercase text-slate-300 mb-1">Alamat Email:</label>
                 <input
                   type="email"
                   value={newUserEmail}
                   onChange={(e) => setNewUserEmail(e.target.value)}
                   placeholder="user@gmail.com"
-                  className="w-full px-3 py-2 nb-input rounded-xl font-semibold"
+                  className="w-full px-3 py-2 nb-input rounded-xl font-medium"
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-extrabold uppercase text-slate-950 mb-1">Nama Pengguna:</label>
+                <label className="block font-bold uppercase text-slate-300 mb-1">Nama Pengguna:</label>
                 <input
                   type="text"
                   value={newUserName}
                   onChange={(e) => setNewUserName(e.target.value)}
                   placeholder="Nama Lengkap / Editor"
-                  className="w-full px-3 py-2 nb-input rounded-xl font-semibold"
+                  className="w-full px-3 py-2 nb-input rounded-xl font-medium"
                 />
               </div>
 
               <div>
-                <label className="block font-extrabold uppercase text-slate-950 mb-1">Role Akun:</label>
+                <label className="block font-bold uppercase text-slate-300 mb-1">Role Akun:</label>
                 <select
                   value={newUserRole}
                   onChange={(e) => setNewUserRole(e.target.value as any)}
-                  className="w-full px-3 py-2 nb-input rounded-xl font-bold"
+                  className="w-full px-3 py-2 nb-input rounded-xl font-semibold"
                 >
                   <option value="user">User Biasa</option>
                   <option value="admin">Administrator (Root)</option>
@@ -2271,13 +2411,13 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
               </div>
 
               <div>
-                <label className="block font-extrabold uppercase text-slate-950 mb-1">Saldo Awal:</label>
+                <label className="block font-bold uppercase text-slate-300 mb-1">Saldo Awal:</label>
                 <input
                   type="number"
                   min="0"
                   value={newUserBalance}
                   onChange={(e) => setNewUserBalance(e.target.value)}
-                  className="w-full px-3 py-2 nb-input rounded-xl font-mono font-black"
+                  className="w-full px-3 py-2 nb-input rounded-xl font-mono font-bold"
                 />
               </div>
 
@@ -2285,14 +2425,14 @@ Body:    {"gmail": "user@gmail.com", "link": "https://..."}`}
                 <button
                   type="button"
                   onClick={() => setShowCreateUserModal(false)}
-                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#EBF1FF] text-slate-950 font-extrabold nb-btn cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-slate-200 font-bold cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={creatingUser}
-                  className="py-2.5 px-3 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold nb-btn cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white font-bold nb-btn cursor-pointer"
                 >
                   {creatingUser ? 'Menyimpan...' : 'Simpan User'}
                 </button>

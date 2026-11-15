@@ -40,6 +40,7 @@ interface AuthContextType {
   refreshUserProfile: () => Promise<void>;
   refreshSettings: () => Promise<void>;
   updateBalanceLocally: (newBalance: number) => void;
+  updateDisplayName: (newName: string) => Promise<void>;
   changeUserRole: (uid: string, role: 'user' | 'admin', userData?: UserProfile) => Promise<void>;
 }
 
@@ -218,6 +219,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data: UserProfile = await res.json();
         if (fsData) {
           if (typeof fsData.balance === 'number') data.balance = fsData.balance;
+          if (typeof fsData.name === 'string' && fsData.name.trim()) data.name = fsData.name.trim();
           if (fsData.role === 'user' || fsData.role === 'admin') data.role = fsData.role;
           if (fsData.status === 'active' || fsData.status === 'banned') data.status = fsData.status;
         }
@@ -228,6 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!prev) return null;
           const updated: UserProfile = {
             ...prev,
+            name: typeof fsData.name === 'string' && fsData.name.trim() ? fsData.name.trim() : prev.name,
             balance: typeof fsData.balance === 'number' ? fsData.balance : prev.balance,
             role: fsData.role || prev.role,
             status: fsData.status || prev.status
@@ -478,7 +481,72 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
-  // Real-time Firestore document listener to detect role, balance, or status updates directly
+  const updateDisplayName = async (newName: string) => {
+    if (!userProfile) {
+      throw new Error('Silakan masuk akun terlebih dahulu.');
+    }
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      throw new Error('Nama tampilan tidak boleh kosong.');
+    }
+
+    // 1. Update local state & cache immediately so Desktop + Mobile stay identical
+    const optimisticProfile: UserProfile = { ...userProfile, name: trimmed };
+    setUserProfile(optimisticProfile);
+    saveProfileCache(optimisticProfile);
+
+    // 2. Update Firebase Auth profile if active
+    if (auth.currentUser) {
+      await updateProfile(auth.currentUser, { displayName: trimmed }).catch((e) => {
+        console.warn('Firebase Auth displayName update note:', e);
+      });
+    }
+
+    // 3. Update Firestore user document
+    try {
+      await setDoc(
+        doc(db, 'users', userProfile.uid),
+        {
+          uid: userProfile.uid,
+          email: userProfile.email,
+          name: trimmed,
+          role: userProfile.role,
+          status: userProfile.status,
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+    } catch (fsErr) {
+      console.warn('Firestore displayName sync warning:', fsErr);
+    }
+
+    // 4. Sync with backend server
+    try {
+      const res = await fetch('/api/user/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: userProfile.uid,
+          email: userProfile.email,
+          name: trimmed,
+          photoURL: userProfile.photoURL || '',
+          balance: userProfile.balance,
+          role: userProfile.role,
+          status: userProfile.status
+        })
+      });
+      if (res.ok) {
+        const synced: UserProfile = await res.json();
+        const finalProfile = { ...synced, name: trimmed };
+        setUserProfile(finalProfile);
+        saveProfileCache(finalProfile);
+      }
+    } catch (apiErr) {
+      console.warn('Server displayName sync warning:', apiErr);
+    }
+  };
+
+  // Real-time Firestore document listener to detect name, role, balance, or status updates directly
   useEffect(() => {
     if (!userProfile?.uid) return;
 
@@ -487,15 +555,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const unsubFirestore = onSnapshot(userDocRef, async (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
+          const fsName = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : undefined;
+          const hasNameChange = Boolean(fsName && fsName !== userProfile.name);
           const hasRoleChange = data.role && data.role !== userProfile.role;
           const hasBalanceChange = typeof data.balance === 'number' && data.balance !== userProfile.balance;
           const hasStatusChange = data.status && data.status !== userProfile.status;
 
-          if (hasRoleChange || hasBalanceChange || hasStatusChange) {
+          if (hasNameChange || hasRoleChange || hasBalanceChange || hasStatusChange) {
             setUserProfile(prev => {
               if (!prev) return null;
               const updated: UserProfile = {
                 ...prev,
+                name: fsName || prev.name,
                 role: data.role || prev.role,
                 balance: typeof data.balance === 'number' ? data.balance : prev.balance,
                 status: data.status || prev.status
@@ -504,14 +575,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return updated;
             });
 
-            // Sync updated balance/role/status back to backend server so API orders stay accurate
+            // Sync updated name/balance/role/status back to backend server so API orders stay accurate
             await fetch('/api/user/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 uid: userProfile.uid,
                 email: userProfile.email,
-                name: data.name || userProfile.name,
+                name: fsName || userProfile.name,
                 balance: typeof data.balance === 'number' ? data.balance : undefined,
                 role: data.role,
                 status: data.status
@@ -525,7 +596,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // ignore
     }
-  }, [userProfile?.uid, userProfile?.role, userProfile?.balance, userProfile?.status]);
+  }, [userProfile?.uid, userProfile?.name, userProfile?.role, userProfile?.balance, userProfile?.status]);
 
   // Change user role both in Firestore and server
   const changeUserRole = async (targetUid: string, newRole: 'user' | 'admin', userData?: UserProfile) => {
@@ -567,6 +638,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshUserProfile,
       refreshSettings,
       updateBalanceLocally,
+      updateDisplayName,
       changeUserRole
     }}>
       {children}

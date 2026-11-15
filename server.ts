@@ -185,7 +185,7 @@ const OWNER_EMAIL = 'apriliansyahazril10@gmail.com';
 
 // Middleware to verify admin rights
 function verifyAdmin(req: Request, res: Response, next: NextFunction) {
-  const adminUid = req.headers['x-admin-uid'] as string;
+  const adminUid = (req.headers['x-admin-uid'] as string || '').trim();
   const adminEmail = (req.headers['x-admin-email'] as string || '').toLowerCase().trim();
 
   // If email matches owner, or user record has role admin
@@ -194,6 +194,15 @@ function verifyAdmin(req: Request, res: Response, next: NextFunction) {
   }
 
   if (adminUid && db.users[adminUid] && db.users[adminUid].role === 'admin') {
+    return next();
+  }
+
+  if (
+    adminEmail &&
+    Object.values(db.users).some(
+      (u) => u.email?.toLowerCase().trim() === adminEmail && u.role === 'admin'
+    )
+  ) {
     return next();
   }
 
@@ -443,31 +452,44 @@ app.post('/api/deposits', (req, res) => {
     return res.status(403).json({ error: 'Layanan deposit sedang ditutup sementara oleh admin.' });
   }
 
-  const { uid, amount, senderName, userEmail, userName } = req.body;
-  if (!uid || !amount || !senderName) {
+  const { uid, amount, senderName, userEmail, userName, syncedBalance } = req.body;
+  if (!uid || !amount || !senderName || !String(senderName).trim()) {
     return res.status(400).json({ error: 'Data deposit tidak lengkap.' });
   }
 
-  const numericAmount = Math.floor(Number(amount));
+  const cleanedAmount = typeof amount === 'string' ? amount.replace(/[^0-9]/g, '') : amount;
+  const numericAmount = Math.floor(Number(cleanedAmount));
   if (isNaN(numericAmount) || numericAmount < 500) {
     return res.status(400).json({ error: 'Minimal deposit adalah 500.' });
   }
 
+  const emailNorm = (userEmail || `${uid}@am-premium.local`).toLowerCase().trim();
   let user = db.users[uid];
   if (!user) {
-    const emailNorm = (userEmail || `${uid}@am-premium.local`).toLowerCase().trim();
-    const isOwner = emailNorm === OWNER_EMAIL.toLowerCase();
-    user = {
-      uid,
-      name: userName || emailNorm.split('@')[0],
-      email: emailNorm,
-      photoURL: '',
-      balance: 0,
-      role: isOwner ? 'admin' : 'user',
-      createdAt: new Date().toISOString(),
-      status: 'active'
-    };
-    db.users[uid] = user;
+    const existingUid = Object.keys(db.users).find(
+      (k) => db.users[k].email?.toLowerCase().trim() === emailNorm
+    );
+    if (existingUid) {
+      user = db.users[existingUid];
+      delete db.users[existingUid];
+      user.uid = uid;
+      db.users[uid] = user;
+    } else {
+      const isOwner = emailNorm === OWNER_EMAIL.toLowerCase();
+      user = {
+        uid,
+        name: userName || emailNorm.split('@')[0],
+        email: emailNorm,
+        photoURL: '',
+        balance: typeof syncedBalance === 'number' && syncedBalance >= 0 ? Math.floor(syncedBalance) : 0,
+        role: isOwner ? 'admin' : 'user',
+        createdAt: new Date().toISOString(),
+        status: 'active'
+      };
+      db.users[uid] = user;
+    }
+  } else if (typeof syncedBalance === 'number' && syncedBalance >= 0) {
+    user.balance = Math.floor(syncedBalance);
   }
 
   if (user.status === 'banned') {
@@ -479,9 +501,9 @@ app.post('/api/deposits', (req, res) => {
   const newDeposit: DepositTransaction = {
     id: depositId,
     uid,
-    userEmail: (user.email || userEmail || '').toLowerCase().trim(),
+    userEmail: (user.email || emailNorm).toLowerCase().trim(),
     amount: numericAmount,
-    senderName: senderName.trim(),
+    senderName: String(senderName).trim(),
     status: 'Menunggu Konfirmasi Admin',
     createdAt: new Date().toISOString()
   };
@@ -864,19 +886,21 @@ app.post('/api/admin/settings', verifyAdmin, (req, res) => {
 
 // Admin Approve / Reject Deposit
 app.post('/api/admin/deposits/action', verifyAdmin, (req, res) => {
-  const { depositId, action, adminNote, depositData } = req.body;
-  const adminEmail = req.headers['x-admin-email'] as string || 'Admin';
+  const { depositId, action, adminNote, depositData, currentBalance } = req.body;
+  const adminEmail = (req.headers['x-admin-email'] as string) || 'Admin';
 
   if (!depositId || !['approve', 'reject'].includes(action)) {
     return res.status(400).json({ error: 'Parameter persetujuan tidak valid.' });
   }
 
   let deposit = db.deposits.find(d => d.id === depositId);
-  if (!deposit && depositData && depositData.uid && depositData.amount) {
+  if (!deposit && depositData && Number(depositData.amount) > 0) {
+    const fallbackUid = depositData.uid || 'usr_dep_' + Date.now().toString(36);
+    const fallbackEmail = (depositData.userEmail || `${fallbackUid}@am-premium.local`).toLowerCase().trim();
     deposit = {
       id: depositId,
-      uid: depositData.uid,
-      userEmail: depositData.userEmail || `${depositData.uid}@am-premium.local`,
+      uid: fallbackUid,
+      userEmail: fallbackEmail,
       amount: Math.floor(Number(depositData.amount)),
       senderName: depositData.senderName || 'Pengguna',
       status: depositData.status || 'Menunggu Konfirmasi Admin',
@@ -889,32 +913,53 @@ app.post('/api/admin/deposits/action', verifyAdmin, (req, res) => {
     return res.status(404).json({ error: 'Permintaan deposit tidak ditemukan.' });
   }
 
-  // Prevent duplicate approval or re-processing
-  if (deposit.status !== 'Menunggu Konfirmasi Admin') {
-    return res.status(400).json({ error: `Deposit ini telah berstatus '${deposit.status}', tidak dapat diproses ulang.` });
-  }
-
-  let user = db.users[deposit.uid];
+  const targetEmail = (deposit.userEmail || `${deposit.uid}@am-premium.local`).toLowerCase().trim();
+  let user = db.users[deposit.uid] || Object.values(db.users).find(
+    (u) => u.email?.toLowerCase().trim() === targetEmail
+  );
   if (!user) {
-    const emailNorm = (deposit.userEmail || `${deposit.uid}@am-premium.local`).toLowerCase().trim();
     user = {
       uid: deposit.uid,
-      name: deposit.senderName || emailNorm.split('@')[0],
-      email: emailNorm,
+      name: deposit.senderName || targetEmail.split('@')[0],
+      email: targetEmail,
       photoURL: '',
-      balance: 0,
-      role: emailNorm === OWNER_EMAIL.toLowerCase() ? 'admin' : 'user',
+      balance: typeof currentBalance === 'number' && currentBalance >= 0 ? Math.floor(currentBalance) : 0,
+      role: targetEmail === OWNER_EMAIL.toLowerCase() ? 'admin' : 'user',
       createdAt: new Date().toISOString(),
       status: 'active'
     };
     db.users[deposit.uid] = user;
+  } else if (typeof currentBalance === 'number' && !isNaN(currentBalance) && currentBalance >= 0) {
+    user.balance = Math.floor(currentBalance);
+  }
+
+  const targetStatus = action === 'approve' ? 'Berhasil' : 'Ditolak';
+
+  // Idempotent return if this deposit was already processed into the requested targetStatus
+  if (deposit.status === targetStatus) {
+    saveDatabase();
+    return res.json({
+      success: true,
+      alreadyProcessed: true,
+      message: action === 'approve'
+        ? 'Deposit sudah dikonfirmasi berhasil sebelumnya.'
+        : 'Deposit sudah ditolak sebelumnya.',
+      deposit,
+      newBalance: user.balance
+    });
+  }
+
+  if (deposit.status !== 'Menunggu Konfirmasi Admin') {
+    return res.status(400).json({
+      error: `Deposit ini telah berstatus '${deposit.status}', tidak dapat diubah lagi.`
+    });
   }
 
   if (action === 'approve') {
     deposit.status = 'Berhasil';
     deposit.approvedAt = new Date().toISOString();
     deposit.adminNote = adminNote || 'Disetujui oleh admin';
-    
+
     // Add balance atomically
     user.balance += deposit.amount;
 
@@ -945,6 +990,7 @@ app.post('/api/admin/deposits/action', verifyAdmin, (req, res) => {
 
   res.json({
     success: true,
+    alreadyProcessed: false,
     message: action === 'approve' ? 'Deposit berhasil disetujui & saldo ditambahkan.' : 'Deposit berhasil ditolak.',
     deposit,
     newBalance: user.balance

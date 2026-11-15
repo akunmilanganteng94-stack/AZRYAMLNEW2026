@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
-import { ProductItem, OrderTransaction, DepositTransaction } from '../types/index.ts';
+import { OrderTransaction, DepositTransaction, ProductItem } from '../types/index.ts';
 import { db, collection, query, where, onSnapshot } from '../lib/firebase.ts';
 import {
   mergeOrders,
@@ -11,12 +11,12 @@ import {
 import {
   Wallet,
   ArrowUpRight,
-  ShoppingBag,
   Clock,
   CheckCircle2,
   Zap,
-  ChevronRight,
-  RefreshCw
+  RefreshCw,
+  ShoppingBag,
+  ShieldCheck
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -24,6 +24,10 @@ interface HomeViewProps {
   setSelectedProduct: (id: string) => void;
   onOpenAuth: () => void;
 }
+
+const HERO_ILLUSTRATION =
+  'https://gbaike-image.cdn.bcebos.com/32fa828ba61ea8d3fd1f58b41757274e251f95caf274/32fa828ba61ea8d3fd1f58b41757274e251f95caf274_16_9?x-bce-process=image/format,f_auto';
+const HERO_ILLUSTRATION_FALLBACK = '/images/hero-am.jpg';
 
 export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedProduct, onOpenAuth }) => {
   const { userProfile, storeSettings, refreshUserProfile } = useAuth();
@@ -36,7 +40,6 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
   const [fsEmailDeposits, setFsEmailDeposits] = useState<DepositTransaction[]>([]);
   const [allOrders, setAllOrders] = useState<OrderTransaction[]>([]);
   const [allDeposits, setAllDeposits] = useState<DepositTransaction[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     if (!userProfile?.uid) {
@@ -68,9 +71,8 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
       const prodRes = await fetch('/api/products');
       if (prodRes.ok) {
         const prodData = await prodRes.json();
-        setProducts(prodData);
+        if (Array.isArray(prodData)) setProducts(prodData);
       }
-
       if (userProfile?.uid) {
         const emailParam = userProfile.email ? `?email=${encodeURIComponent(userProfile.email)}` : '';
         const txRes = await fetch(`/api/transactions/${userProfile.uid}${emailParam}`);
@@ -82,8 +84,6 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
       }
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -172,93 +172,59 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
     };
   }, [userProfile?.uid, userProfile?.email]);
 
-  const handleOrderProduct = (productId: string) => {
-    setSelectedProduct(productId);
-    setActiveTab('menu');
-  };
-
   const recentOrders = allOrders.slice(0, 3);
   const recentDeposits = allDeposits.slice(0, 3);
   const successfulOrdersCount = allOrders.filter((o) => o.status === 'Berhasil').length;
   const totalTransactionsCount = allOrders.length + allDeposits.length;
+  const bulkPrice = products.find((p) => p.id === 'bulk-am')?.price ?? 200;
+  const verifPrice = products.find((p) => p.id === 'am-verif')?.price ?? 300;
 
   return (
-    <div className="space-y-6 pb-24 md:pb-8">
-      {/* Top Welcome & Store Status Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617]">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-black px-2 py-0.5 rounded bg-[#FFE600] border border-slate-950 text-slate-950 uppercase tracking-widest">
-              AZRYL OFFICIAL
-            </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#E0F2FE] border border-slate-950 text-slate-950">
-              AM Premium
-            </span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black font-display text-slate-950 mt-1.5">
-            Selamat Datang, {userProfile ? userProfile.name : 'Pengunjung'}
-          </h1>
-          <p className="text-xs font-medium text-slate-600 mt-0.5">
-            Platform pembelian akun dan verifikasi Alight Motion resmi by AZRYL.
-          </p>
-        </div>
-
-        {/* Store Status Badge */}
-        <div
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] text-xs font-extrabold shrink-0 ${
-            storeSettings?.storeOpen ? 'bg-[#DCFCE7] text-slate-950' : 'bg-[#FFE4E6] text-slate-950'
-          }`}
-        >
-          <span
-            className={`w-2.5 h-2.5 rounded-full border border-slate-950 ${
-              storeSettings?.storeOpen ? 'bg-[#16A34A]' : 'bg-[#DC2626]'
-            }`}
-          />
-          <span>Status Layanan: {storeSettings?.storeOpen ? 'Buka 24 Jam' : 'Tutup Sementara'}</span>
-        </div>
-      </div>
-
-      {/* Hero Balance Card & Key Stats */}
+    <div className="space-y-6">
+      {/* Main Balance Blue Gradient Card & Quick Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Main Balance Hero Card */}
-        <div className="lg:col-span-2 rounded-2xl p-6 bg-[#FFE600] border-2 border-slate-950 shadow-[5px_5px_0px_0px_#020617] flex flex-col justify-between min-h-[175px]">
-          <div>
+        <div className="lg:col-span-2 rounded-3xl p-6 md-blue-gradient border border-blue-300/25 flex flex-col justify-between min-h-[185px] relative overflow-hidden">
+          <div className="pointer-events-none absolute -bottom-14 -right-10 w-44 h-44 rounded-full bg-sky-300/20 blur-2xl" />
+
+          <div className="relative">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-950">
-                <div className="w-7 h-7 rounded-lg bg-white border-2 border-slate-950 flex items-center justify-center">
-                  <Wallet className="w-4 h-4 text-slate-950" />
+              <div className="flex items-center gap-2.5 text-xs font-semibold text-blue-100">
+                <div className="w-8 h-8 rounded-xl bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center">
+                  <Wallet className="w-4 h-4 text-white" />
                 </div>
-                <span>Saldo Aktif Pengguna</span>
+                <span>Saldo Aktif Akun</span>
               </div>
               {userProfile && (
                 <button
                   onClick={() => refreshUserProfile()}
-                  className="p-2 rounded-xl bg-white hover:bg-[#E0F2FE] border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                  className="p-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 text-white transition-all cursor-pointer"
                   title="Perbarui Saldo"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 text-slate-950" />
+                  <RefreshCw className="w-4 h-4" />
                 </button>
               )}
             </div>
 
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="font-mono font-black text-3xl sm:text-4xl text-slate-950 tracking-tight tabular-nums">
+            <div className="mt-4 flex items-baseline gap-2">
+              <span className="font-mono font-black text-3xl sm:text-4xl text-white tracking-tight tabular-nums">
                 {userProfile ? userProfile.balance.toLocaleString() : '0'}
               </span>
+              <span className="text-xs font-medium text-blue-100/80">Saldo</span>
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t-2 border-slate-950 flex flex-wrap items-center justify-between gap-3">
-            <div className="text-xs font-bold text-slate-950 flex items-center gap-1.5">
-              <Zap className="w-4 h-4 text-slate-950" />
-              <span>Minimal deposit 500 via QRIS</span>
+          <div className="relative mt-6 pt-4 border-t border-white/20 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs font-medium text-blue-50 flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-sky-200" />
+              <span>Minimal deposit 500 via QRIS Instan</span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div>
               {userProfile ? (
                 <button
                   onClick={() => setActiveTab('deposit')}
-                  className="py-2 px-4 rounded-xl bg-slate-950 hover:bg-[#2563EB] text-white font-extrabold text-xs border-2 border-slate-950 shadow-[3px_3px_0px_0px_#FFFFFF] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none flex items-center gap-1.5 transition-all cursor-pointer"
+                  className="py-2 px-4 rounded-xl bg-white text-[#102A6B] hover:bg-blue-50 font-bold text-xs shadow-[0_8px_20px_-6px_rgba(0,0,0,0.45)] flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <ArrowUpRight className="w-4 h-4" />
                   <span>Deposit Sekarang</span>
@@ -266,7 +232,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
               ) : (
                 <button
                   onClick={onOpenAuth}
-                  className="py-2 px-4 rounded-xl bg-slate-950 hover:bg-[#2563EB] text-white font-extrabold text-xs border-2 border-slate-950 shadow-[3px_3px_0px_0px_#FFFFFF] flex items-center gap-1.5 transition-all cursor-pointer"
+                  className="py-2 px-4 rounded-xl bg-white text-[#102A6B] hover:bg-blue-50 font-bold text-xs shadow-[0_8px_20px_-6px_rgba(0,0,0,0.45)] flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <span>Masuk untuk Deposit</span>
                 </button>
@@ -275,199 +241,119 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
           </div>
         </div>
 
-        {/* Quick Stats Grid */}
+        {/* 2-Column Mobile Quick Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-1 gap-4">
-          <div className="p-4 rounded-2xl bg-[#E0F2FE] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] flex flex-col justify-center">
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
-              Total Transaksi Anda
-            </span>
-            <div className="text-2xl sm:text-3xl font-black font-mono text-slate-950 mt-1 tabular-nums">
-              {totalTransactionsCount}{' '}
-              <span className="text-xs font-sans font-bold text-slate-700">Order & Depo</span>
+          <div className="p-4 sm:p-5 rounded-2xl md-card flex flex-col justify-center">
+            <span className="text-xs font-semibold text-blue-300">Total Transaksi</span>
+            <div className="text-2xl sm:text-3xl font-bold font-mono text-white mt-1.5 tabular-nums">
+              {totalTransactionsCount}
             </div>
-            <div className="text-[11px] font-bold text-slate-800 mt-1.5 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5" />
-              <span>Pelacakan Real-time</span>
+            <div className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span>Order & Deposit</span>
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-[#DCFCE7] border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] flex flex-col justify-center">
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
-              Order Berhasil
-            </span>
-            <div className="text-2xl sm:text-3xl font-black font-mono text-slate-950 mt-1 tabular-nums">
-              {successfulOrdersCount}{' '}
-              <span className="text-xs font-sans font-bold text-slate-700">Akun Terproses</span>
+          <div className="p-4 sm:p-5 rounded-2xl md-card flex flex-col justify-center">
+            <span className="text-xs font-semibold text-sky-300">Order Berhasil</span>
+            <div className="text-2xl sm:text-3xl font-bold font-mono text-white mt-1.5 tabular-nums">
+              {successfulOrdersCount}
             </div>
-            <div className="text-[11px] font-bold text-slate-800 mt-1.5 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" />
-              <span>Garansi 100% diproses</span>
+            <div className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Akun terproses</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Promotional SaaS Banner */}
-      <div className="rounded-2xl border-2 border-slate-950 bg-white shadow-[4px_4px_0px_0px_#020617] p-5 sm:p-6 flex flex-col md:flex-row items-center justify-between gap-5">
-        <div className="space-y-2.5 max-w-xl">
-          <span className="inline-block px-2.5 py-1 rounded-lg bg-[#38BDF8] text-slate-950 font-black text-[10px] border-2 border-slate-950 uppercase tracking-wider">
-            LAYANAN INSTAN AZRYL
-          </span>
-          <h2 className="text-lg sm:text-2xl font-black font-display text-slate-950">
-            Layanan Alight Motion Tercepat & Terpercaya
-          </h2>
-          <p className="text-xs font-medium text-slate-700 leading-relaxed">
-            Dapatkan akun Bulk AM mulai dari 200 atau verifikasi akun link resmi dengan harga 300. Otomatis, cepat, dan amanah bersama AZRYL.
-          </p>
-          <div className="pt-1 flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => {
-                setSelectedProduct('bulk-am');
-                setActiveTab('menu');
-              }}
-              className="px-4 py-2.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn cursor-pointer"
-            >
-              Order Bulk AM
-            </button>
-            <button
-              onClick={() => {
-                setSelectedProduct('am-verif');
-                setActiveTab('menu');
-              }}
-              className="px-4 py-2.5 rounded-xl bg-[#FFE600] hover:bg-[#FEF08A] text-slate-950 font-extrabold text-xs nb-btn cursor-pointer"
-            >
-              Order AM Verif
-            </button>
-          </div>
-        </div>
+      {/* Hero Card with CTA + Illustration */}
+      <div className="md-card rounded-3xl p-5 sm:p-7 relative overflow-hidden">
+        <div className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full bg-blue-600/20 blur-3xl" />
 
-        <div className="w-full md:w-64 aspect-[16/9] rounded-xl overflow-hidden border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] bg-[#EBF1FF] shrink-0">
-          <img
-            src="https://cdn.corenexis.com/f/hUimw94N.webp"
-            alt="AM Promo Banner"
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = '/images/product-banner.webp';
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Product Showcase Section */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-black font-display text-slate-950">Layanan Utama</h2>
-            <p className="text-xs font-medium text-slate-600">
-              Pilih paket layanan akun Alight Motion yang Anda butuhkan
-            </p>
-          </div>
-          <button
-            onClick={() => setActiveTab('menu')}
-            className="px-3 py-1.5 rounded-xl bg-white hover:bg-[#FFE600] text-slate-950 border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617] text-xs font-extrabold flex items-center gap-1 cursor-pointer"
-          >
-            <span>Lihat Semua</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* 2 Products Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {products.map((prod) => {
-            const isBulk = prod.id === 'bulk-am';
-
-            return (
-              <div
-                key={prod.id}
-                className="flex flex-col justify-between rounded-2xl bg-white border-2 border-slate-950 shadow-[5px_5px_0px_0px_#020617] p-5 hover:-translate-y-0.5 transition-transform"
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center relative">
+          <div className="lg:col-span-7 space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-400/25 text-blue-300 font-semibold">
+                AM PREMIUM AZRYL
+              </span>
+              <span className="text-slate-500">·</span>
+              <span
+                className={`font-semibold ${
+                  storeSettings?.storeOpen !== false ? 'text-emerald-400' : 'text-rose-400'
+                }`}
               >
-                <div>
-                  {/* Horizontal Rectangular Banner */}
-                  <div className="w-full aspect-[16/8] rounded-xl overflow-hidden bg-slate-100 border-2 border-slate-950 mb-4 relative">
-                    <img
-                      src={prod.image || 'https://cdn.corenexis.com/f/hUimw94N.webp'}
-                      alt={prod.name}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = '/images/product-banner.webp';
-                      }}
-                    />
+                {storeSettings?.storeOpen !== false ? 'Layanan Buka 24 Jam' : 'Tutup Sementara'}
+              </span>
+            </div>
 
-                    <div className="absolute top-2.5 left-2.5 flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-[#FFE600] p-1 border-2 border-slate-950 shadow-[2px_2px_0px_0px_#020617]">
-                        <img
-                          src="https://cdn.corenexis.com/f/eJVaVCyH.png"
-                          alt="AM Logo"
-                          className="w-full h-full object-contain"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = '/images/am-logo.png';
-                          }}
-                        />
-                      </div>
-                      <span className="px-2 py-0.5 rounded-lg bg-white border-2 border-slate-950 text-[10px] font-black text-slate-950 shadow-[2px_2px_0px_0px_#020617]">
-                        {isBulk ? 'Bulk Inject AM' : 'Verifikasi Link AM'}
-                      </span>
-                    </div>
+            <p className="text-xs sm:text-sm text-slate-400 leading-relaxed max-w-xl">
+              Kelola saldo QRIS, pesan akun Bulk AM otomatis, dan selesaikan verifikasi link Alight Motion resmi dalam satu dashboard modern.
+            </p>
 
-                    <div
-                      className={`absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-lg border-2 border-slate-950 text-[10px] font-black shadow-[2px_2px_0px_0px_#020617] ${
-                        prod.active ? 'bg-[#4ADE80] text-slate-950' : 'bg-[#FB7185] text-slate-950'
-                      }`}
-                    >
-                      {prod.active ? 'Tersedia' : 'Habis'}
-                    </div>
-                  </div>
+            <div className="pt-1 flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => {
+                  setSelectedProduct('bulk-am');
+                  setActiveTab('menu');
+                }}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#1D4ED8] hover:to-[#2563EB] text-white font-semibold text-xs nb-btn flex items-center gap-2 cursor-pointer"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Order Bulk AM</span>
+                <span className="px-2 py-0.5 rounded-md bg-black/25 border border-white/20 font-mono text-[11px] font-bold">
+                  Rp {bulkPrice.toLocaleString('id-ID')}
+                </span>
+              </button>
 
-                  {/* Header & Title */}
-                  <div className="flex items-baseline justify-between mb-2">
-                    <h3 className="text-lg font-black font-display text-slate-950">{prod.name}</h3>
-                    <div className="text-right">
-                      <span className="text-xl font-black font-mono text-[#2563EB] tabular-nums">
-                        {prod.price.toLocaleString()}
-                      </span>
-                      <span className="text-[11px] font-bold text-slate-600"> / akun</span>
-                    </div>
-                  </div>
+              <button
+                onClick={() => {
+                  setSelectedProduct('am-verif');
+                  setActiveTab('menu');
+                }}
+                className="px-4 py-2.5 rounded-xl bg-white/[0.06] hover:bg-blue-500/15 text-slate-100 border border-white/12 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4 text-sky-400" />
+                <span>Order AM Verif</span>
+                <span className="px-2 py-0.5 rounded-md bg-blue-500/20 border border-blue-400/30 text-sky-300 font-mono text-[11px] font-bold">
+                  Rp {verifPrice.toLocaleString('id-ID')}
+                </span>
+              </button>
+            </div>
+          </div>
 
-                  {/* Description */}
-                  <p className="text-xs font-medium text-slate-700 leading-relaxed min-h-[38px]">
-                    {prod.description}
-                  </p>
-                </div>
-
-                {/* Footer Action */}
-                <div className="mt-5 pt-4 border-t-2 border-slate-950 flex items-center justify-between">
-                  <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider">
-                    {isBulk ? 'Proses inject instan' : 'Via link verifikasi'}
-                  </span>
-
-                  <button
-                    onClick={() => handleOrderProduct(prod.id)}
-                    disabled={!prod.active || !storeSettings?.storeOpen}
-                    className="py-2 px-4 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                  >
-                    <ShoppingBag className="w-3.5 h-3.5" />
-                    <span>Order Sekarang</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+          {/* Hero Visual Illustration */}
+          <div className="lg:col-span-5">
+            <div className="w-full aspect-[16/10] rounded-2xl overflow-hidden border border-white/10 bg-gradient-to-br from-[#121728] to-[#0D111C] shadow-[0_16px_40px_-14px_rgba(37,99,235,0.45)] relative">
+              <img
+                src={HERO_ILLUSTRATION}
+                alt="AM PREMIUM AZRYL Workspace"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const img = e.currentTarget as HTMLImageElement;
+                  if (!img.dataset.fallbackUsed) {
+                    img.dataset.fallbackUsed = '1';
+                    img.src = HERO_ILLUSTRATION_FALLBACK;
+                  } else {
+                    img.style.display = 'none';
+                  }
+                }}
+              />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#101114]/65 via-transparent to-transparent" />
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Recent Activity / Last Transactions */}
       {userProfile && (recentOrders.length > 0 || recentDeposits.length > 0) && (
-        <div className="rounded-2xl bg-white border-2 border-slate-950 shadow-[4px_4px_0px_0px_#020617] p-5">
-          <div className="flex items-center justify-between mb-3 pb-3 border-b-2 border-slate-950">
-            <h3 className="text-sm font-black font-display text-slate-950 uppercase tracking-wider">
-              Aktivitas Terakhir
-            </h3>
+        <div className="rounded-3xl md-card p-5 sm:p-6">
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/[0.08]">
+            <h2 className="text-sm font-bold font-display text-white">Aktivitas Terakhir</h2>
             <button
               onClick={() => setActiveTab('history')}
-              className="text-xs font-extrabold text-[#2563EB] hover:underline cursor-pointer"
+              className="text-xs font-semibold text-blue-400 hover:text-blue-300 cursor-pointer"
             >
               Buka Riwayat
             </button>
@@ -477,33 +363,33 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
             {recentOrders.map((ord) => (
               <div
                 key={ord.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 text-xs"
+                className="flex items-center justify-between p-3.5 rounded-2xl bg-[#12141A] border border-white/[0.06] hover:border-blue-400/25 transition-colors text-xs"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-lg bg-[#FFE600] border-2 border-slate-950 text-slate-950 flex items-center justify-center font-black shrink-0">
+                  <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-400/25 text-blue-300 flex items-center justify-center font-bold text-[11px] shrink-0">
                     AM
                   </div>
                   <div className="min-w-0">
-                    <div className="font-extrabold text-slate-950 truncate">
-                      {ord.productName} ({ord.quantity} akun)
+                    <div className="font-semibold text-white truncate">
+                      {ord.productName} · {ord.quantity} akun
                     </div>
-                    <div className="text-[11px] text-slate-600 font-mono truncate">{ord.email}</div>
+                    <div className="text-[11px] text-slate-400 font-mono truncate">{ord.email}</div>
                   </div>
                 </div>
 
                 <div className="text-right shrink-0 ml-2">
-                  <div className="font-mono font-black text-slate-950 tabular-nums">
+                  <div className="font-mono font-bold text-white tabular-nums">
                     {ord.totalPrice.toLocaleString()}
                   </div>
                   <span
-                    className={`inline-block mt-0.5 text-[10px] font-black px-2 py-0.5 rounded border border-slate-950 ${
+                    className={`inline-block mt-0.5 text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
                       ord.status === 'Berhasil'
-                        ? 'bg-[#4ADE80] text-slate-950'
+                        ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
                         : ord.status === 'Sedang diproses'
-                        ? 'bg-[#38BDF8] text-slate-950'
+                        ? 'bg-sky-500/15 border-sky-400/30 text-sky-300'
                         : ord.status === 'Gagal'
-                        ? 'bg-[#FB7185] text-slate-950'
-                        : 'bg-[#FFE600] text-slate-950'
+                        ? 'bg-rose-500/15 border-rose-400/30 text-rose-300'
+                        : 'bg-blue-500/15 border-blue-400/30 text-blue-300'
                     }`}
                   >
                     {ord.status}
@@ -515,31 +401,31 @@ export const HomeView: React.FC<HomeViewProps> = ({ setActiveTab, setSelectedPro
             {recentDeposits.map((dep) => (
               <div
                 key={dep.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-[#E0F2FE]/60 border-2 border-slate-950 text-xs"
+                className="flex items-center justify-between p-3.5 rounded-2xl bg-[#12141A] border border-white/[0.06] hover:border-blue-400/25 transition-colors text-xs"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-lg bg-[#38BDF8] border-2 border-slate-950 text-slate-950 flex items-center justify-center font-black shrink-0">
+                  <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-400/25 text-sky-300 flex items-center justify-center font-bold text-[11px] shrink-0">
                     QR
                   </div>
                   <div className="min-w-0">
-                    <div className="font-extrabold text-slate-950 truncate">
+                    <div className="font-semibold text-white truncate">
                       Deposit QRIS · {dep.senderName}
                     </div>
-                    <div className="text-[11px] text-slate-600 font-mono truncate">{dep.id}</div>
+                    <div className="text-[11px] text-slate-400 font-mono truncate">{dep.id}</div>
                   </div>
                 </div>
 
                 <div className="text-right shrink-0 ml-2">
-                  <div className="font-mono font-black text-[#2563EB] tabular-nums">
+                  <div className="font-mono font-bold text-sky-300 tabular-nums">
                     +{dep.amount.toLocaleString()}
                   </div>
                   <span
-                    className={`inline-block mt-0.5 text-[10px] font-black px-2 py-0.5 rounded border border-slate-950 ${
+                    className={`inline-block mt-0.5 text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
                       dep.status === 'Berhasil'
-                        ? 'bg-[#4ADE80] text-slate-950'
+                        ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
                         : dep.status === 'Ditolak'
-                        ? 'bg-[#FB7185] text-slate-950'
-                        : 'bg-[#FFE600] text-slate-950'
+                        ? 'bg-rose-500/15 border-rose-400/30 text-rose-300'
+                        : 'bg-blue-500/15 border-blue-400/30 text-blue-300'
                     }`}
                   >
                     {dep.status}

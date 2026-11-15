@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useToast } from './Toast.tsx';
 import {
@@ -23,7 +23,14 @@ interface AccountViewProps {
 }
 
 export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveTab }) => {
-  const { userProfile, currentUser, logout, refreshUserProfile, resetPassword, changePassword } = useAuth();
+  const {
+    userProfile,
+    currentUser,
+    logout,
+    updateDisplayName,
+    resetPassword,
+    changePassword
+  } = useAuth();
   const { showToast } = useToast();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -36,19 +43,25 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
 
+  useEffect(() => {
+    if (userProfile?.name && !isEditing) {
+      setName(userProfile.name);
+    }
+  }, [userProfile?.name, isEditing]);
+
   if (!userProfile) {
     return (
-      <div className="max-w-md mx-auto text-center py-14 px-6 bg-white border-2 border-slate-950 rounded-2xl shadow-[5px_5px_0px_0px_#020617] space-y-4">
-        <div className="w-16 h-16 mx-auto rounded-2xl bg-[#FFE600] border-2 border-slate-950 flex items-center justify-center text-slate-950">
+      <div className="max-w-md mx-auto text-center py-14 px-6 md-card rounded-3xl space-y-4">
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#0EA5E9] border border-blue-300/25 flex items-center justify-center text-white shadow-[0_10px_24px_-6px_rgba(37,99,235,0.6)]">
           <User className="w-8 h-8" />
         </div>
-        <h2 className="text-xl font-black font-display text-slate-950">Akun Saya</h2>
-        <p className="text-xs font-medium text-slate-600">
+        <h2 className="text-xl font-bold font-display text-white">Akun Saya</h2>
+        <p className="text-xs text-slate-400">
           Masuk ke akun Anda untuk mengelola profil, melihat saldo, dan riwayat transaksi.
         </p>
         <button
           onClick={onOpenAuth}
-          className="py-2.5 px-6 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn cursor-pointer"
+          className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white font-semibold text-xs nb-btn cursor-pointer"
         >
           Masuk / Daftar
         </button>
@@ -57,34 +70,25 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
   }
 
   const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text).catch(() => {});
     showToast(`${label} disalin ke clipboard!`, 'info');
   };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showToast('Nama tampilan tidak boleh kosong.', 'error');
+      return;
+    }
 
     setSaving(true);
     try {
-      const res = await fetch('/api/user/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uid: userProfile.uid,
-          email: userProfile.email,
-          name: name.trim(),
-          photoURL: userProfile.photoURL
-        })
-      });
-
-      if (res.ok) {
-        await refreshUserProfile();
-        setIsEditing(false);
-        showToast('Profil berhasil diperbarui!', 'success');
-      }
-    } catch (err) {
-      showToast('Gagal memperbarui profil.', 'error');
+      await updateDisplayName(trimmed);
+      setIsEditing(false);
+      showToast('Nama profil berhasil diperbarui & tersinkronisasi!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal memperbarui nama profil.', 'error');
     } finally {
       setSaving(false);
     }
@@ -148,24 +152,26 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 pb-24 md:pb-8">
-      {/* Profile Card */}
-      <div className="bg-[#FFE600] border-2 border-slate-950 rounded-2xl p-6 shadow-[5px_5px_0px_0px_#020617]">
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
+    <div className="max-w-2xl mx-auto space-y-6">
+      {/* Profile Hero Blue Gradient Card */}
+      <div className="md-blue-gradient border border-blue-300/25 rounded-3xl p-6 relative overflow-hidden">
+        <div className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-sky-300/20 blur-3xl" />
+
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 relative">
           {/* Avatar */}
           <div className="relative">
             {userProfile.photoURL ? (
               <img
                 src={userProfile.photoURL}
                 alt={userProfile.name}
-                className="w-20 h-20 rounded-2xl object-cover border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] bg-white"
+                className="w-20 h-20 rounded-2xl object-cover border-2 border-white/30 shadow-[0_10px_25px_rgba(0,0,0,0.35)] bg-[#101114]"
               />
             ) : (
-              <div className="w-20 h-20 rounded-2xl bg-white border-2 border-slate-950 shadow-[3px_3px_0px_0px_#020617] flex items-center justify-center font-display font-black text-2xl text-slate-950">
+              <div className="w-20 h-20 rounded-2xl bg-white/15 backdrop-blur-md border-2 border-white/30 shadow-[0_10px_25px_rgba(0,0,0,0.35)] flex items-center justify-center font-display font-bold text-2xl text-white">
                 {userProfile.name.charAt(0).toUpperCase()}
               </div>
             )}
-            <span className="absolute -bottom-1.5 -right-1.5 px-2 py-0.5 rounded-lg bg-[#4ADE80] border-2 border-slate-950 text-slate-950 font-black text-[9px] uppercase tracking-wider">
+            <span className="absolute -bottom-1.5 -right-1.5 px-2 py-0.5 rounded-full bg-emerald-400 text-[#052E16] font-bold text-[10px] uppercase tracking-wider shadow">
               {userProfile.status}
             </span>
           </div>
@@ -174,37 +180,31 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
           <div className="flex-1 text-center sm:text-left space-y-1 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
               <div className="min-w-0">
-                <h1 className="text-xl font-black font-display text-slate-950 truncate">
+                <h1 className="text-xl font-bold font-display text-white truncate">
                   {userProfile.name}
                 </h1>
-                <p className="text-xs font-bold text-slate-800 font-mono truncate">{userProfile.email}</p>
+                <p className="text-xs text-blue-100/85 font-mono truncate">{userProfile.email}</p>
               </div>
 
               <div className="flex items-center justify-center sm:justify-start gap-1.5 shrink-0">
-                <span
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 border-2 border-slate-950 ${
-                    userProfile.role === 'admin'
-                      ? 'bg-[#FB923C] text-slate-950'
-                      : 'bg-white text-slate-950'
-                  }`}
-                >
+                <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1 bg-white/15 border border-white/25 text-white backdrop-blur-sm">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>{userProfile.role === 'admin' ? 'ADMINISTRATOR' : 'MEMBER'}</span>
+                  <span>{userProfile.role === 'admin' ? 'Administrator' : 'Member'}</span>
                 </span>
               </div>
             </div>
 
-            <div className="pt-3 flex flex-wrap items-center justify-center sm:justify-start gap-4 text-xs font-bold text-slate-950">
+            <div className="pt-3 flex flex-wrap items-center justify-center sm:justify-start gap-4 text-xs text-blue-50">
               <div className="flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5" />
+                <Calendar className="w-3.5 h-3.5 text-sky-200" />
                 <span>Bergabung: {formattedDate}</span>
               </div>
 
               <div className="flex items-center gap-1.5">
-                <Wallet className="w-3.5 h-3.5" />
+                <Wallet className="w-3.5 h-3.5 text-sky-200" />
                 <span>
                   Saldo:{' '}
-                  <strong className="font-mono font-black tabular-nums">
+                  <strong className="font-mono font-bold tabular-nums text-white">
                     {userProfile.balance.toLocaleString()}
                   </strong>
                 </span>
@@ -214,48 +214,49 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
         </div>
       </div>
 
-      {/* Account Details & Settings */}
-      <div className="bg-white border-2 border-slate-950 rounded-2xl p-6 shadow-[5px_5px_0px_0px_#020617] space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b-2 border-slate-950">
-          <h2 className="text-sm font-black font-display text-slate-950 uppercase tracking-wider">
-            Detail Akun & Kredensial
+      {/* Account Details & Name Editing */}
+      <div className="md-card rounded-3xl p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+          <h2 className="text-sm font-bold font-display text-white">
+            Detail Akun & Profil
           </h2>
           <button
             onClick={() => {
               setName(userProfile.name);
               setIsEditing(!isEditing);
             }}
-            className="px-3 py-1 rounded-lg bg-[#E0F2FE] hover:bg-[#FFE600] border-2 border-slate-950 text-xs font-extrabold text-slate-950 flex items-center gap-1 cursor-pointer"
+            className="px-3 py-1.5 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-400/25 text-xs font-semibold text-blue-300 flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <Edit3 className="w-3.5 h-3.5" />
             <span>{isEditing ? 'Batal' : 'Ubah Nama'}</span>
           </button>
         </div>
 
-        {/* Edit Form */}
+        {/* Edit Name Form */}
         {isEditing && (
           <form
             onSubmit={handleUpdateProfile}
-            className="p-4 rounded-xl bg-[#F0F4FF] border-2 border-slate-950 space-y-3"
+            className="p-4 rounded-2xl bg-[#12141A] border border-blue-400/25 space-y-3"
           >
-            <label className="block text-xs font-extrabold uppercase text-slate-950">
-              Ubah Nama Tampilan
+            <label className="block text-xs font-semibold text-slate-200">
+              Ubah Nama Tampilan (Sinkron Desktop & Mobile)
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="flex-1 px-3 py-2 nb-input rounded-xl text-xs font-bold"
+                placeholder="Masukkan nama tampilan baru"
+                className="flex-1 px-3.5 py-2.5 nb-input rounded-xl text-xs font-medium"
                 required
               />
               <button
                 type="submit"
                 disabled={saving}
-                className="px-4 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold nb-btn flex items-center gap-1 cursor-pointer"
+                className="px-4 py-2.5 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white rounded-xl text-xs font-semibold nb-btn flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer shrink-0"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Simpan</span>
+                <span>{saving ? 'Menyimpan...' : 'Simpan Nama'}</span>
               </button>
             </div>
           </form>
@@ -263,38 +264,38 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
 
         {/* Info Rows */}
         <div className="space-y-3 text-xs">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[#EBF1FF] border-2 border-slate-950">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Key className="w-4 h-4 text-slate-950 shrink-0" />
+          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#12141A] border border-white/[0.06]">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-400/20 flex items-center justify-center text-blue-300 shrink-0">
+                <Key className="w-4 h-4" />
+              </div>
               <div className="min-w-0">
-                <span className="text-[10px] font-extrabold uppercase text-slate-500 block">
-                  UID Pengguna
-                </span>
-                <span className="font-mono font-bold text-slate-950 break-all">{userProfile.uid}</span>
+                <span className="text-[11px] text-slate-400 block">UID Pengguna</span>
+                <span className="font-mono font-semibold text-slate-100 break-all">{userProfile.uid}</span>
               </div>
             </div>
             <button
               onClick={() => copyToClipboard(userProfile.uid, 'UID')}
-              className="p-2 text-slate-950 rounded-lg bg-white hover:bg-[#FFE600] border border-slate-950 shrink-0 ml-2 cursor-pointer"
+              className="p-2 text-slate-300 hover:text-white rounded-xl bg-white/[0.05] hover:bg-blue-500/20 border border-white/10 shrink-0 ml-2 transition-colors cursor-pointer"
               title="Salin UID"
             >
               <Copy className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[#EBF1FF] border-2 border-slate-950">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Mail className="w-4 h-4 text-slate-950 shrink-0" />
+          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#12141A] border border-white/[0.06]">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-400/20 flex items-center justify-center text-blue-300 shrink-0">
+                <Mail className="w-4 h-4" />
+              </div>
               <div className="min-w-0">
-                <span className="text-[10px] font-extrabold uppercase text-slate-500 block">
-                  Alamat Email
-                </span>
-                <span className="font-mono font-bold text-slate-950 break-all">{userProfile.email}</span>
+                <span className="text-[11px] text-slate-400 block">Alamat Email</span>
+                <span className="font-mono font-semibold text-slate-100 break-all">{userProfile.email}</span>
               </div>
             </div>
             <button
               onClick={() => copyToClipboard(userProfile.email, 'Email')}
-              className="p-2 text-slate-950 rounded-lg bg-white hover:bg-[#FFE600] border border-slate-950 shrink-0 ml-2 cursor-pointer"
+              className="p-2 text-slate-300 hover:text-white rounded-xl bg-white/[0.05] hover:bg-blue-500/20 border border-white/10 shrink-0 ml-2 transition-colors cursor-pointer"
               title="Salin Email"
             >
               <Copy className="w-3.5 h-3.5" />
@@ -304,16 +305,16 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
 
         {/* Admin Shortcut if role is admin */}
         {userProfile.role === 'admin' && (
-          <div className="mt-4 p-4 rounded-xl bg-[#FED7AA] border-2 border-slate-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="mt-4 p-4 rounded-2xl bg-blue-500/12 border border-blue-400/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <span className="text-xs font-black text-slate-950 block">Akses Panel Administrator</span>
-              <span className="text-[11px] font-semibold text-slate-800">
+              <span className="text-xs font-bold text-white block">Akses Panel Administrator</span>
+              <span className="text-[11px] text-slate-300">
                 Kelola deposit, pengguna, produk, dan konfigurasi API server.
               </span>
             </div>
             <button
               onClick={() => setActiveTab('admin')}
-              className="px-3.5 py-2 rounded-xl bg-slate-950 hover:bg-[#2563EB] text-white font-extrabold text-xs nb-btn flex items-center gap-1 shrink-0 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white font-semibold text-xs nb-btn flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
               <span>Buka Admin</span>
               <ExternalLink className="w-3.5 h-3.5" />
@@ -322,17 +323,17 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
         )}
 
         {/* Action Buttons */}
-        <div className="pt-4 border-t-2 border-slate-950 flex flex-wrap items-center justify-between gap-3">
+        <div className="pt-4 border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-3">
           <button
             onClick={() => setActiveTab('deposit')}
-            className="py-2.5 px-4 rounded-xl bg-[#38BDF8] hover:bg-[#7DD3FC] text-slate-950 font-extrabold text-xs nb-btn cursor-pointer"
+            className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white font-semibold text-xs nb-btn cursor-pointer"
           >
             Deposit Saldo (QRIS)
           </button>
 
           <button
             onClick={() => logout()}
-            className="py-2.5 px-4 rounded-xl bg-[#FFE4E6] hover:bg-[#FB7185] text-slate-950 font-extrabold text-xs nb-btn flex items-center gap-1.5 cursor-pointer"
+            className="py-2.5 px-4 rounded-xl bg-rose-500/12 hover:bg-rose-500/22 text-rose-300 border border-rose-500/25 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Keluar Akun</span>
@@ -341,27 +342,27 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
       </div>
 
       {/* Keamanan & Reset Kata Sandi Firebase */}
-      <div className="bg-white border-2 border-slate-950 rounded-2xl p-6 shadow-[5px_5px_0px_0px_#020617] space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b-2 border-slate-950">
+      <div className="md-card rounded-3xl p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
           <div>
-            <h2 className="text-sm font-black font-display text-slate-950 uppercase tracking-wider">
-              Keamanan & Kata Sandi (Firebase)
+            <h2 className="text-sm font-bold font-display text-white">
+              Keamanan & Kata Sandi
             </h2>
-            <p className="text-[11px] font-medium text-slate-600 mt-0.5">
+            <p className="text-[11px] text-slate-400 mt-0.5">
               Kirim tautan reset sandi resmi dari Firebase ke Gmail atau ubah sandi langsung.
             </p>
           </div>
-          <div className="w-9 h-9 rounded-xl bg-[#E0F2FE] border-2 border-slate-950 flex items-center justify-center shrink-0">
-            <Lock className="w-4 h-4 text-slate-950" />
+          <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-400/25 flex items-center justify-center shrink-0 text-blue-300">
+            <Lock className="w-4 h-4" />
           </div>
         </div>
 
         {/* Send Firebase Reset Link */}
-        <div className="p-4 rounded-xl bg-[#EBF1FF] border-2 border-slate-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-4 rounded-2xl bg-[#12141A] border border-white/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-0.5 min-w-0">
-            <span className="text-xs font-black text-slate-950 block">Reset Sandi via Email Firebase</span>
-            <span className="text-[11px] font-semibold text-slate-700 block truncate">
-              Kirim tautan ubah sandi ke <span className="font-mono text-[#2563EB]">{userProfile.email}</span>
+            <span className="text-xs font-semibold text-white block">Reset Sandi via Email Firebase</span>
+            <span className="text-[11px] text-slate-400 block truncate">
+              Kirim tautan ubah sandi ke <span className="font-mono text-blue-300">{userProfile.email}</span>
             </span>
           </div>
 
@@ -369,33 +370,33 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
             type="button"
             onClick={handleSendResetLink}
             disabled={sendingResetLink}
-            className="px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-xs nb-btn flex items-center justify-center gap-1.5 disabled:opacity-50 shrink-0 cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white font-semibold text-xs nb-btn flex items-center justify-center gap-1.5 disabled:opacity-50 shrink-0 cursor-pointer"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>{sendingResetLink ? 'Mengirim...' : 'Kirim Link Reset Firebase'}</span>
+            <span>{sendingResetLink ? 'Mengirim...' : 'Kirim Link Reset'}</span>
           </button>
         </div>
 
         {resetLinkSent && (
-          <div className="p-3.5 rounded-xl bg-[#DCFCE7] border-2 border-slate-950 text-[11px] font-bold text-slate-950">
+          <div className="p-3.5 rounded-2xl bg-emerald-500/12 border border-emerald-400/25 text-[11px] text-emerald-100">
             Link reset resmi Firebase sudah dikirim ke <strong>{userProfile.email}</strong>. Silakan cek kotak masuk atau folder Spam Gmail Anda.
           </div>
         )}
 
-        {/* Direct Password Change Form (for email/password accounts) */}
+        {/* Direct Password Change Form */}
         {hasPasswordProvider && (
           <form
             onSubmit={handleChangePassword}
-            className="p-4 rounded-xl bg-[#F0F4FF] border-2 border-slate-950 space-y-3"
+            className="p-4 rounded-2xl bg-[#12141A] border border-white/[0.06] space-y-3"
           >
-            <div className="text-xs font-black uppercase text-slate-950">Ubah Kata Sandi Langsung</div>
+            <div className="text-xs font-semibold text-white">Ubah Kata Sandi Langsung</div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <input
                 type="password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Sandi lama"
-                className="px-3 py-2 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
+                className="px-3 py-2 nb-input rounded-xl text-xs font-medium placeholder-slate-500"
                 required
               />
               <input
@@ -403,7 +404,7 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Sandi baru (min 6)"
-                className="px-3 py-2 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
+                className="px-3 py-2 nb-input rounded-xl text-xs font-medium placeholder-slate-500"
                 required
               />
               <input
@@ -411,14 +412,14 @@ export const AccountView: React.FC<AccountViewProps> = ({ onOpenAuth, setActiveT
                 value={confirmNewPassword}
                 onChange={(e) => setConfirmNewPassword(e.target.value)}
                 placeholder="Ulangi sandi baru"
-                className="px-3 py-2 nb-input rounded-xl text-xs font-semibold placeholder-slate-400"
+                className="px-3 py-2 nb-input rounded-xl text-xs font-medium placeholder-slate-500"
                 required
               />
             </div>
             <button
               type="submit"
               disabled={changingPassword}
-              className="px-4 py-2 rounded-xl bg-[#FFE600] hover:bg-[#FEF08A] text-slate-950 font-black text-xs nb-btn disabled:opacity-50 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] text-white font-semibold text-xs nb-btn disabled:opacity-50 cursor-pointer"
             >
               {changingPassword ? 'Menyimpan...' : 'Ubah Kata Sandi'}
             </button>
