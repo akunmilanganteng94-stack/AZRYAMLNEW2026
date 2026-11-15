@@ -78,7 +78,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAuth, activeTab, setActive
   }, [userProfile?.uid, userProfile?.email, activeTab]);
 
   return (
-    <header className="sticky top-0 z-30 w-full min-h-14 sm:min-h-16 bg-gradient-to-r from-[#0F2666] via-[#1D4ED8] to-[#2563EB] backdrop-blur-xl border-b border-blue-400/25 shadow-[0_8px_28px_-10px_rgba(37,99,235,0.55)] px-2.5 min-[380px]:px-3 sm:px-6 py-1.5 flex items-center justify-between gap-1.5 sm:gap-2">
+    <header className="sticky top-0 md:relative md:top-auto z-30 w-full min-h-14 sm:min-h-16 bg-gradient-to-r from-[#0F2666] via-[#1D4ED8] to-[#2563EB] backdrop-blur-xl border-b border-blue-400/25 shadow-[0_8px_28px_-10px_rgba(37,99,235,0.55)] px-2.5 min-[380px]:px-3 sm:px-6 py-1.5 flex items-center justify-between gap-1.5 sm:gap-2">
       {/* Left Zone: Brand on Mobile (sejajar), Breadcrumb on Desktop */}
       <div className="flex items-center gap-2 min-w-0 shrink-0 md:shrink">
         <button
